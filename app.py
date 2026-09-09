@@ -31,6 +31,14 @@ FANTACALCIO_STATS_URL = (
 )
 FANTACALCIO_QUOTES_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio"
 
+FANTACALCIO_SEASON_FORMATIONS_URL = (
+    "https://www.fantacalcio.it/news/calcio-italia/06_08_2026/"
+    "asta-fantacalcio-le-probabili-formazioni-della-serie-a-enilive-2026-27-495558"
+)
+FANTACALCIO_MATCHDAY_FORMATIONS_URL = (
+    "https://www.fantacalcio.it/probabili-formazioni-serie-a"
+)
+
 FBREF_PLAYINGTIME_URL = (
     "https://fbref.com/en/comps/11/2026-2027/playingtime/"
     "2026-2027-Serie-A-M-Stats"
@@ -51,7 +59,7 @@ DEFAULT_SLOTS = {"P": 3, "D": 8, "C": 8, "A": 6}
 DEFAULT_PERC = {"P": 0.08, "D": 0.12, "C": 0.25, "A": 0.55}
 
 STAT_COLS = [
-    "PV", "Starts", "TitolaritaPct", "MV", "FM", "Gol", "Assist",
+    "PV", "Starts", "TitolaritaPct", "TitolaritaProxy", "TitolaritaFonte", "MV", "FM", "Gol", "Assist",
     "Amm", "Esp", "BonusScore", "TitolaritaProxy", "FormaScore",
     "BonusIndex", "RendimentoScore",
 ]
@@ -325,15 +333,23 @@ def supabase_configured():
     return bool(supabase_url() and supabase_key())
 
 
-def supabase_headers(access_token=None, prefer=None):
+def supabase_headers(access_token=None, prefer=None, include_publishable_bearer=False):
+    key = supabase_key()
     headers = {
-        "apikey": supabase_key(),
+        "apikey": key,
         "Content-Type": "application/json",
     }
+
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
+    elif include_publishable_bearer and key:
+        # Comportamento compatibile con i client ufficiali Supabase:
+        # prima del login la publishable key identifica il client.
+        headers["Authorization"] = f"Bearer {key}"
+
     if prefer:
         headers["Prefer"] = prefer
+
     return headers
 
 
@@ -342,39 +358,80 @@ def auth_request(method, endpoint, payload=None, access_token=None):
     response = requests.request(
         method,
         url,
-        headers=supabase_headers(access_token=access_token),
+        headers=supabase_headers(
+            access_token=access_token,
+            include_publishable_bearer=(access_token is None),
+        ),
         json=payload,
         timeout=20,
     )
     return response
 
 
+def safe_key_diagnostics():
+    key = supabase_key()
+    url = supabase_url()
+    return {
+        "url": url,
+        "key_length": len(key),
+        "key_prefix": key[:18] + "…" if len(key) > 18 else key,
+        "key_suffix": "…" + key[-8:] if len(key) >= 8 else key,
+        "key_format_ok": key.startswith("sb_publishable_"),
+        "project_ref": (
+            url.replace("https://", "").split(".supabase.co")[0]
+            if ".supabase.co" in url else "?"
+        ),
+    }
+
+
 def validate_supabase_credentials():
     """
-    Verifica che URL e publishable key appartengano allo stesso progetto.
-    /auth/v1/settings è un endpoint leggero che richiede apikey valida.
+    Testa la chiave contro Supabase Auth.
+    Prova prima apikey + Authorization (come i client ufficiali),
+    poi solo apikey. Restituisce diagnostica non sensibile.
     """
     if not supabase_configured():
         return False, "Secrets Supabase mancanti."
 
-    try:
-        r = requests.get(
-            f"{supabase_url()}/auth/v1/settings",
-            headers=supabase_headers(),
-            timeout=15,
-        )
-        if r.ok:
-            return True, None
+    endpoint = f"{supabase_url()}/auth/v1/settings"
+    key = supabase_key()
 
-        msg = None
+    attempts = [
+        {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        },
+        {
+            "apikey": key,
+            "Content-Type": "application/json",
+        },
+    ]
+
+    last_detail = None
+
+    for headers in attempts:
         try:
-            msg = (r.json() or {}).get("msg") or (r.json() or {}).get("message")
-        except Exception:
-            msg = r.text[:250]
+            r = requests.get(endpoint, headers=headers, timeout=15)
+            if r.ok:
+                return True, None
 
-        return False, f"{r.status_code}: {msg or 'API key non valida'}"
-    except Exception as e:
-        return False, str(e)
+            try:
+                body = r.json() or {}
+                detail = (
+                    body.get("msg")
+                    or body.get("message")
+                    or body.get("error")
+                    or r.text[:200]
+                )
+            except Exception:
+                detail = r.text[:200]
+
+            last_detail = f"{r.status_code}: {detail}"
+        except Exception as e:
+            last_detail = str(e)
+
+    return False, last_detail or "Connessione non valida"
 
 
 def set_auth_session(data):
@@ -756,9 +813,21 @@ def render_auth_screen():
             "Connessione Supabase non valida. "
             f"Dettaglio: {key_error}"
         )
-        st.caption(
-            "Controlla che SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY "
-            "provengano dallo stesso progetto."
+
+        d = safe_key_diagnostics()
+
+        st.markdown("**Diagnostica sicura**")
+        st.code(
+            f"Project ref: {d['project_ref']}\n"
+            f"Key: {d['key_prefix']}{d['key_suffix']}\n"
+            f"Lunghezza key: {d['key_length']}\n"
+            f"Formato sb_publishable_: {'OK' if d['key_format_ok'] else 'NO'}"
+        )
+
+        st.info(
+            "In Streamlit > Settings > Secrets lascia SOLO "
+            "SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY. "
+            "Cancella eventuali vecchie righe SUPABASE_KEY, chiavi anon o duplicati."
         )
         st.stop()
 
@@ -1665,6 +1734,12 @@ def merge_fbref_starts(dataframe, fb):
 
 @st.cache_data(ttl=45, show_spinner=False)
 def fetch_fantacalcio_stats():
+    """
+    Parser robusto per la tabella Fantacalcio 2026/27.
+    Usa prima i nomi colonna; se Fantacalcio restituisce header vuoti/duplicati,
+    usa la struttura nota della tabella:
+    Calciatore | Sq | PV | MV | FM | Gol | GS | Rig | RP | Ass | Amm | Esp.
+    """
     tables = read_html_tables(FANTACALCIO_STATS_URL)
 
     best = None
@@ -1673,49 +1748,107 @@ def fetch_fantacalcio_stats():
     for raw in tables:
         df = flatten_columns(raw)
         text = " ".join(map(str, df.columns)).lower()
-        score = sum(x in text for x in ["pv", "mv", "fm", "gol", "ass"])
+
+        score = (
+            int("pv" in text) * 2
+            + int("mv" in text) * 2
+            + int("fm" in text) * 2
+            + int("gol" in text)
+            + int("ass" in text)
+        )
+
         if len(df) >= 20 and score > best_score:
-            best = df
+            best = df.copy()
             best_score = score
 
     if best is None:
         raise ValueError("tabella statistiche Fantacalcio non trovata")
 
-    c_nome = pick_col(best, ["Calciatore", "Giocatore", "Nome"])
+    df = best.copy()
+
+    # Individua colonne statistiche standard.
+    c_pv = pick_col(df, ["PV"])
+    c_mv = pick_col(df, ["MV"])
+    c_fm = pick_col(df, ["FM"])
+    c_gol = pick_col(df, ["Gol"])
+    c_ass = pick_col(df, ["Ass", "Assist"])
+    c_amm = pick_col(df, ["Amm"])
+    c_esp = pick_col(df, ["Esp"])
+    c_sq = pick_col(df, ["Sq", "Squadra"])
+
+    # Nome: può avere header "Calciatore", oppure essere una delle colonne Unnamed.
+    c_nome = pick_col(df, ["Calciatore", "Giocatore", "Nome"])
 
     if c_nome is None:
-        object_cols = [
-            c for c in best.columns
-            if best[c].dtype == object
-        ]
-        if object_cols:
-            c_nome = max(
-                object_cols,
-                key=lambda c: best[c].astype(str).str.len().mean()
-            )
+        # Cerca la colonna testuale che sembra contenere nomi di calciatori.
+        candidate_scores = []
+        for c in df.columns:
+            s = df[c].astype(str).str.strip()
+            # Nomi: molte stringhe alfabetiche, lunghezza media > 4,
+            # non sono team code da 3 lettere.
+            alpha = s.str.contains(r"[A-Za-zÀ-ÿ]", regex=True, na=False).mean()
+            avg_len = s.str.len().replace(0, np.nan).mean()
+            three_letter = s.str.fullmatch(r"[A-Z]{3}", na=False).mean()
+            numeric = pd.to_numeric(
+                s.str.replace(",", ".", regex=False),
+                errors="coerce",
+            ).notna().mean()
+            score = alpha * 3 + min(float(avg_len or 0) / 10, 2) - three_letter * 3 - numeric * 3
+            candidate_scores.append((score, c))
+
+        if candidate_scores:
+            c_nome = max(candidate_scores, key=lambda x: x[0])[1]
 
     if c_nome is None:
-        raise ValueError("nome giocatore Fantacalcio non riconosciuto")
+        raise ValueError("colonna nome giocatore Fantacalcio non riconosciuta")
 
-    out = pd.DataFrame({"Nome": best[c_nome].map(clean_name)})
+    # Se qualche colonna standard manca, ricostruisci per posizione relativa
+    # partendo da PV: in Fantacalcio le statistiche sono contigue.
+    cols = list(df.columns)
+    if c_pv is not None:
+        pv_idx = cols.index(c_pv)
 
-    mapping = {
-        "PV": ["PV"],
-        "MV": ["MV"],
-        "FM": ["FM"],
-        "Gol": ["Gol"],
-        "Assist": ["Ass", "Assist"],
-        "Amm": ["Amm"],
-        "Esp": ["Esp"],
-    }
+        def col_at(offset):
+            idx = pv_idx + offset
+            return cols[idx] if 0 <= idx < len(cols) else None
 
-    for new_col, aliases in mapping.items():
-        col = pick_col(best, aliases)
-        out[new_col] = to_num(best[col]) if col is not None else np.nan
+        c_mv = c_mv or col_at(1)
+        c_fm = c_fm or col_at(2)
+        c_gol = c_gol or col_at(3)
+        # Ass è 8 colonne dopo PV nella struttura corrente:
+        # PV, MV, FM, Gol, GS, Rig, RP, Ass
+        c_ass = c_ass or col_at(7)
+        c_amm = c_amm or col_at(8)
+        c_esp = c_esp or col_at(9)
+
+    out = pd.DataFrame({
+        "Nome": df[c_nome].map(clean_name),
+        "PV": to_num(df[c_pv]) if c_pv is not None else np.nan,
+        "MV": to_num(df[c_mv]) if c_mv is not None else np.nan,
+        "FM": to_num(df[c_fm]) if c_fm is not None else np.nan,
+        "Gol": to_num(df[c_gol]) if c_gol is not None else np.nan,
+        "Assist": to_num(df[c_ass]) if c_ass is not None else np.nan,
+        "Amm": to_num(df[c_amm]) if c_amm is not None else np.nan,
+        "Esp": to_num(df[c_esp]) if c_esp is not None else np.nan,
+        "Squadra_STATS": (
+            df[c_sq].astype(str).str.strip()
+            if c_sq is not None else ""
+        ),
+    })
+
+    out = out[
+        out["Nome"].notna()
+        & (out["Nome"].str.len() > 1)
+        & out["PV"].notna()
+    ].copy()
 
     out["_key"] = out["Nome"].map(key_name)
-    out = out[out["Nome"].str.len() > 1]
-    return out.drop_duplicates("_key").reset_index(drop=True)
+    out = out.drop_duplicates("_key").reset_index(drop=True)
+
+    if out.empty:
+        raise ValueError("Fantacalcio ha restituito la tabella ma senza righe statistiche valide")
+
+    return out
 
 
 def compute_scores(df):
@@ -1741,8 +1874,20 @@ def compute_scores(df):
     else:
         tit_real = pd.Series(np.nan, index=out.index)
 
-    pv_proxy = np.clip(pv / max_pv * 100, 0, 100)
+    # Fallback più utile: presenze a voto / massimo presenze della squadra.
+    # Non viene chiamato "titolarità reale", ma "stima titolarità" in UI.
+    if "Squadra" in out.columns:
+        team_max_pv = out.groupby("Squadra")["PV"].transform("max").replace(0, np.nan)
+        pv_proxy = (pv / team_max_pv * 100).clip(0, 100)
+    else:
+        pv_proxy = np.clip(pv / max_pv * 100, 0, 100)
+
     out["TitolaritaProxy"] = tit_real.combine_first(pv_proxy).clip(0, 100)
+    out["TitolaritaFonte"] = np.where(
+        tit_real.notna(),
+        "Starts",
+        "Stima da presenze",
+    )
 
     out["FormaScore"] = np.clip((fm - 5.5) / 3.0 * 10, 0, 10)
     out["BonusIndex"] = np.clip(bonus / max_bonus * 10, 0, 10)
@@ -2205,6 +2350,110 @@ def build_buying_advice(available_df):
     return pd.concat(chunks, ignore_index=True)
 
 
+
+# ------------------------------------------------------------
+# FORMAZIONI STAGIONALI 2026/27
+# ------------------------------------------------------------
+
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_season_formations():
+    """
+    Estrae dall'articolo Fantacalcio le 20 formazioni base 2026/27:
+    allenatore, modulo, probabile XI, ballottaggi, rigoristi e piazzati.
+    """
+    r = requests.get(
+        FANTACALCIO_SEASON_FORMATIONS_URL,
+        headers={
+            **HEADERS,
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+        timeout=20,
+    )
+    r.raise_for_status()
+
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    teams = [
+        "Atalanta", "Bologna", "Cagliari", "Como", "Fiorentina",
+        "Frosinone", "Genoa", "Inter", "Juventus", "Lazio",
+        "Lecce", "Milan", "Monza", "Napoli", "Parma",
+        "Roma", "Sassuolo", "Torino", "Udinese", "Venezia",
+    ]
+
+    text = soup.get_text("\n", strip=True)
+    lines = [re.sub(r"\s+", " ", x).strip() for x in text.splitlines()]
+    lines = [x for x in lines if x]
+
+    result = []
+
+    # Trova ogni squadra come heading/linea esatta, poi legge fino alla prossima squadra.
+    upper_teams = {t.upper(): t for t in teams}
+
+    starts = []
+    for i, line in enumerate(lines):
+        if line.upper() in upper_teams:
+            starts.append((i, upper_teams[line.upper()]))
+
+    # Deduplica occorrenze ravvicinate mantenendo la prima utile.
+    filtered = []
+    seen = set()
+    for idx, team in starts:
+        if team not in seen:
+            filtered.append((idx, team))
+            seen.add(team)
+
+    for pos, (idx, team) in enumerate(filtered):
+        end = filtered[pos + 1][0] if pos + 1 < len(filtered) else min(idx + 30, len(lines))
+        block = lines[idx + 1:end]
+
+        def find_value(prefixes):
+            for line in block:
+                low = line.lower()
+                for p in prefixes:
+                    if low.startswith(p.lower()):
+                        parts = line.split(":", 1)
+                        return parts[1].strip() if len(parts) == 2 else line
+            return ""
+
+        allenatore = find_value(["Allenatore"])
+        modulo = find_value(["Modulo"])
+        formazione = find_value(["Probabile formazione", "Formazione"])
+        ballottaggi = find_value(["Ballottaggi"])
+        rigoristi = find_value(["Rigoristi"])
+        piazzati = find_value(["Calci da fermo", "Piazzati"])
+
+        result.append({
+            "Squadra": team,
+            "Allenatore": allenatore,
+            "Modulo": modulo,
+            "Formazione": formazione,
+            "Ballottaggi": ballottaggi,
+            "Rigoristi": rigoristi,
+            "Piazzati": piazzati,
+        })
+
+    return pd.DataFrame(result)
+
+
+def split_starting_xi(formazione_text):
+    """
+    Converte la stringa Fantacalcio in una lista leggibile di 11 nomi.
+    Mantiene l'ordine originale.
+    """
+    if not formazione_text:
+        return []
+
+    cleaned = (
+        formazione_text
+        .replace(";", ",")
+        .replace("  ", " ")
+        .strip(" .")
+    )
+    players = [p.strip() for p in cleaned.split(",") if p.strip()]
+    return players[:11]
+
+
 # ------------------------------------------------------------
 # SIDEBAR
 # ------------------------------------------------------------
@@ -2246,7 +2495,7 @@ st.markdown(
 
 with st.sidebar:
     st.markdown("### FANTA ASTA")
-    st.caption("Assistant Pro · V7.1")
+    st.caption("Assistant Pro · V8")
 
     if st.session_state.get("guest_mode"):
         st.markdown(
@@ -2645,11 +2894,12 @@ else:
 # TAB
 # ------------------------------------------------------------
 
-tab_rosa, tab_asta, tab_consigli, tab_giocatori, tab_news = st.tabs([
+tab_rosa, tab_asta, tab_consigli, tab_giocatori, tab_formazioni, tab_news = st.tabs([
     "La mia rosa",
     "Asta live",
     "Consigli",
     "Giocatori",
+    "Formazioni 26/27",
     "News",
 ])
 
@@ -2920,13 +3170,25 @@ with tab_asta:
 
             data_c1, data_c2, data_c3, data_c4 = st.columns(4)
             data_c1.metric("Presenze", fmt(row["PV"], 0))
+            tit_real = row.get("TitolaritaPct")
+            tit_proxy = row.get("TitolaritaProxy")
+            if pd.notna(tit_real):
+                tit_label = "Titolarità"
+                tit_value = f"{float(tit_real):.0f}%"
+                tit_help = "Starts / partite della squadra."
+            elif pd.notna(tit_proxy):
+                tit_label = "Titolarità stimata"
+                tit_value = f"{float(tit_proxy):.0f}%"
+                tit_help = "Stima da presenze a voto Fantacalcio; non è una percentuale ufficiale di starts."
+            else:
+                tit_label = "Titolarità"
+                tit_value = "n.d."
+                tit_help = None
+
             data_c2.metric(
-                "Titolarità",
-                (
-                    f"{float(row['TitolaritaPct']):.0f}%"
-                    if pd.notna(row.get("TitolaritaPct"))
-                    else "n.d."
-                ),
+                tit_label,
+                tit_value,
+                help=tit_help,
             )
             data_c3.metric("Gol", fmt(row["Gol"], 0))
             data_c4.metric("Assist", fmt(row["Assist"], 0))
@@ -3034,7 +3296,7 @@ with tab_consigli:
         else:
             cols = [
                 "Nome", "Squadra", "Fascia", "Quotazione", "FVM",
-                "PV", "Starts", "TitolaritaPct", "MV", "FM", "Gol", "Assist",
+                "PV", "Starts", "TitolaritaPct", "TitolaritaProxy", "TitolaritaFonte", "MV", "FM", "Gol", "Assist",
                 "IndiceAcquisto", "Jolly", "Scommessa",
             ]
             cols = [c for c in cols if c in view.columns]
@@ -3104,7 +3366,7 @@ with tab_giocatori:
 
         show_cols = [
             "Nome", "Ruolo", "Squadra", "Quotazione", "FVM",
-            "PV", "Starts", "TitolaritaPct", "MV", "FM", "Gol", "Assist",
+            "PV", "Starts", "TitolaritaPct", "TitolaritaProxy", "TitolaritaFonte", "MV", "FM", "Gol", "Assist",
             "RendimentoScore", "PrioritaRosa",
             "ScoreGuidato",
         ]
@@ -3114,6 +3376,85 @@ with tab_giocatori:
             hide_index=True,
             use_container_width=True,
         )
+
+
+
+# ------------------------------------------------------------
+# TAB FORMAZIONI 2026/27
+# ------------------------------------------------------------
+
+with tab_formazioni:
+    st.subheader("Formazioni base Serie A 2026/27")
+    st.caption(
+        "Fonte Fantacalcio.it. Sono le formazioni stagionali di riferimento "
+        "per l'asta: modulo, undici base, ballottaggi, rigoristi e piazzati. "
+        "Per la giornata corrente usa invece la sezione Probabili Formazioni live."
+    )
+
+    try:
+        formations_df = fetch_season_formations()
+    except Exception as e:
+        formations_df = pd.DataFrame()
+        st.error(f"Non riesco a leggere le formazioni stagionali: {e}")
+
+    if formations_df.empty:
+        st.info("Formazioni stagionali non disponibili in questo momento.")
+    else:
+        team = st.selectbox(
+            "Scegli squadra",
+            formations_df["Squadra"].tolist(),
+            key="season_team_select",
+        )
+
+        r = formations_df[
+            formations_df["Squadra"] == team
+        ].iloc[0]
+
+        h1, h2, h3 = st.columns([1.4, .8, .8])
+        h1.metric("Squadra", team)
+        h2.metric("Modulo", r["Modulo"] or "n.d.")
+        h3.metric("Allenatore", r["Allenatore"] or "n.d.")
+
+        st.markdown("#### Undici base")
+        xi = split_starting_xi(r["Formazione"])
+
+        if xi:
+            xi_df = pd.DataFrame({
+                "#": range(1, len(xi) + 1),
+                "Giocatore": xi,
+            })
+            st.dataframe(
+                xi_df,
+                hide_index=True,
+                use_container_width=True,
+            )
+        else:
+            st.info("Undici base non riconosciuto automaticamente.")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### Ballottaggi")
+            st.write(r["Ballottaggi"] or "Nessun dato")
+            st.markdown("#### Rigoristi")
+            st.write(r["Rigoristi"] or "Nessun dato")
+
+        with c2:
+            st.markdown("#### Calci da fermo")
+            st.write(r["Piazzati"] or "Nessun dato")
+            st.markdown("#### Formazioni giornata")
+            st.markdown(
+                f"[Apri le probabili formazioni live su Fantacalcio.it]"
+                f"({FANTACALCIO_MATCHDAY_FORMATIONS_URL})"
+            )
+
+        with st.expander("Vedi tutte le 20 squadre"):
+            st.dataframe(
+                formations_df[
+                    ["Squadra", "Allenatore", "Modulo", "Formazione"]
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
 
 
 # ------------------------------------------------------------
