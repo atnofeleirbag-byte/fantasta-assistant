@@ -12,7 +12,7 @@ import streamlit as st
 from bs4 import BeautifulSoup
 
 st.set_page_config(
-    page_title="FantAsta Assistant Pro V5.1",
+    page_title="FantAsta Assistant Pro V6",
     page_icon="⚡",
     layout="wide",
 )
@@ -29,6 +29,11 @@ FANTACALCIO_STATS_URL = (
 )
 FANTACALCIO_QUOTES_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio"
 
+FBREF_PLAYINGTIME_URL = (
+    "https://fbref.com/en/comps/11/2026-2027/playingtime/"
+    "2026-2027-Serie-A-M-Stats"
+)
+
 SOS_SEARCH_URL = "https://www.sosfanta.com/?s={query}"
 GAZZETTA_SEARCH_URL = "https://www.gazzetta.it/ricerca/?q={query}"
 FANTACALCIO_SEARCH_URL = "https://www.fantacalcio.it/cerca?q={query}"
@@ -44,8 +49,8 @@ DEFAULT_SLOTS = {"P": 3, "D": 8, "C": 8, "A": 6}
 DEFAULT_PERC = {"P": 0.08, "D": 0.12, "C": 0.25, "A": 0.55}
 
 STAT_COLS = [
-    "PV", "MV", "FM", "Gol", "Assist", "Amm", "Esp",
-    "BonusScore", "TitolaritaProxy", "FormaScore",
+    "PV", "Starts", "TitolaritaPct", "MV", "FM", "Gol", "Assist",
+    "Amm", "Esp", "BonusScore", "TitolaritaProxy", "FormaScore",
     "BonusIndex", "RendimentoScore",
 ]
 
@@ -728,6 +733,219 @@ def merge_live_quotes(dataframe, quotes):
     return out
 
 
+
+def surname_key(name):
+    """
+    Chiave cognome semplificata per far combaciare Fantacalcio con FBref.
+    Fantacalcio usa spesso forme come 'Martinez L.' mentre FBref usa il nome completo.
+    """
+    s = key_name(name)
+    tokens = [t for t in s.split() if len(t) > 1]
+    return tokens[-1] if tokens else s
+
+
+def team_code_map():
+    return {
+        "ATA": "atalanta",
+        "BOL": "bologna",
+        "CAG": "cagliari",
+        "COM": "como",
+        "FIO": "fiorentina",
+        "FRO": "frosinone",
+        "GEN": "genoa",
+        "INT": "inter",
+        "JUV": "juventus",
+        "LAZ": "lazio",
+        "LEC": "lecce",
+        "MIL": "milan",
+        "MON": "monza",
+        "NAP": "napoli",
+        "PAR": "parma",
+        "PIS": "pisa",
+        "ROM": "roma",
+        "SAS": "sassuolo",
+        "TOR": "torino",
+        "UDI": "udinese",
+        "VER": "verona",
+    }
+
+
+def normalize_team_name(value):
+    s = key_name(value)
+    code_map = team_code_map()
+    if s.upper() in code_map:
+        return code_map[s.upper()]
+    # normalizza alcune forme frequenti
+    replacements = {
+        "internazionale": "inter",
+        "hellas verona": "verona",
+        "ac milan": "milan",
+    }
+    return replacements.get(s, s)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_fbref_starts():
+    """
+    Legge FBref Playing Time: Player, Squad, MP e Starts.
+    Restituisce anche il numero di partite della squadra, necessario per
+    TitolaritaPct = Starts / TeamMP.
+    """
+    tables = read_html_tables(FBREF_PLAYINGTIME_URL)
+
+    player_table = None
+    squad_table = None
+
+    for raw in tables:
+        df = flatten_columns(raw)
+        text = " ".join(map(str, df.columns)).lower()
+
+        if (
+            len(df) >= 50
+            and ("player" in text or "giocatore" in text)
+            and "starts" in text
+        ):
+            player_table = df
+
+        if (
+            len(df) >= 10
+            and len(df) <= 40
+            and "squad" in text
+            and "mp" in text
+            and "starts" in text
+        ):
+            # tabella squadra
+            squad_table = df
+
+    if player_table is None:
+        # fallback: cerca tabella con nome e Starts anche se gli header sono duplicati
+        for raw in tables:
+            df = flatten_columns(raw)
+            pcol = pick_col(df, ["Player"])
+            scol = pick_col(df, ["Starts"])
+            if len(df) >= 50 and pcol is not None and scol is not None:
+                player_table = df
+                break
+
+    if player_table is None:
+        raise ValueError("tabella giocatori FBref non trovata")
+
+    c_player = pick_col(player_table, ["Player"])
+    c_squad = pick_col(player_table, ["Squad"])
+    c_starts = pick_col(player_table, ["Starts"])
+    c_mp = pick_col(player_table, ["MP"])
+
+    if c_player is None or c_starts is None:
+        raise ValueError("colonne Starts FBref non riconosciute")
+
+    out = pd.DataFrame({
+        "Nome_FB": player_table[c_player].map(clean_name),
+        "Squadra_FB": (
+            player_table[c_squad].astype(str).str.strip()
+            if c_squad is not None else ""
+        ),
+        "Starts": to_num(player_table[c_starts]),
+        "MP_FB": (
+            to_num(player_table[c_mp])
+            if c_mp is not None else np.nan
+        ),
+    })
+
+    out = out[out["Nome_FB"].notna() & (out["Nome_FB"].str.len() > 1)].copy()
+    out["_key_fb"] = out["Nome_FB"].map(key_name)
+    out["_surname"] = out["Nome_FB"].map(surname_key)
+    out["_team_fb"] = out["Squadra_FB"].map(normalize_team_name)
+
+    # TeamMP: se disponibile dalla tabella squadre lo integriamo.
+    team_mp = {}
+    if squad_table is not None:
+        c_team = pick_col(squad_table, ["Squad"])
+        c_team_mp = pick_col(squad_table, ["MP"])
+        if c_team is not None and c_team_mp is not None:
+            for _, r in squad_table.iterrows():
+                t = normalize_team_name(r[c_team])
+                val = pd.to_numeric(pd.Series([r[c_team_mp]]), errors="coerce").iloc[0]
+                if pd.notna(val):
+                    team_mp[t] = float(val)
+
+    # Fallback: max MP dei giocatori della squadra approssima le giornate giocate.
+    if not team_mp:
+        tmp = out.groupby("_team_fb")["MP_FB"].max()
+        team_mp = {k: float(v) for k, v in tmp.dropna().items()}
+
+    out["TeamMP"] = out["_team_fb"].map(team_mp)
+    out["TitolaritaPct_FB"] = np.where(
+        out["TeamMP"].fillna(0) > 0,
+        (out["Starts"].fillna(0) / out["TeamMP"]) * 100,
+        np.nan,
+    )
+    out["TitolaritaPct_FB"] = out["TitolaritaPct_FB"].clip(0, 100)
+
+    return out.reset_index(drop=True)
+
+
+def merge_fbref_starts(dataframe, fb):
+    """
+    Matching prudente:
+    1. nome normalizzato esatto;
+    2. cognome + squadra, solo se la combinazione identifica un solo giocatore.
+    """
+    out = dataframe.copy()
+
+    for c in ["Starts", "TitolaritaPct"]:
+        if c in out.columns:
+            out = out.drop(columns=[c])
+
+    out["_key_match"] = out["Nome"].map(key_name)
+    out["_surname_match"] = out["Nome"].map(surname_key)
+    out["_team_match"] = out["Squadra"].map(normalize_team_name)
+
+    if fb is None or fb.empty:
+        out["Starts"] = np.nan
+        out["TitolaritaPct"] = np.nan
+        return out.drop(
+            columns=["_key_match", "_surname_match", "_team_match"],
+            errors="ignore",
+        )
+
+    # 1) exact-name matching
+    exact = fb.drop_duplicates("_key_fb").set_index("_key_fb")
+    out["Starts"] = out["_key_match"].map(exact["Starts"])
+    out["TitolaritaPct"] = out["_key_match"].map(exact["TitolaritaPct_FB"])
+
+    # 2) cognome+squadra solo per combinazioni univoche
+    fb_pair = fb.copy()
+    counts = (
+        fb_pair.groupby(["_surname", "_team_fb"])
+        .size()
+        .rename("_n")
+        .reset_index()
+    )
+    unique_pairs = counts[counts["_n"] == 1][["_surname", "_team_fb"]]
+    fb_unique = fb_pair.merge(
+        unique_pairs,
+        on=["_surname", "_team_fb"],
+        how="inner",
+    )
+    pair_lookup = {
+        (r["_surname"], r["_team_fb"]): (r["Starts"], r["TitolaritaPct_FB"])
+        for _, r in fb_unique.iterrows()
+    }
+
+    missing = out["Starts"].isna()
+    for idx in out.index[missing]:
+        key = (out.at[idx, "_surname_match"], out.at[idx, "_team_match"])
+        if key in pair_lookup:
+            starts, pct = pair_lookup[key]
+            out.at[idx, "Starts"] = starts
+            out.at[idx, "TitolaritaPct"] = pct
+
+    return out.drop(
+        columns=["_key_match", "_surname_match", "_team_match"],
+        errors="ignore",
+    )
+
+
 @st.cache_data(ttl=45, show_spinner=False)
 def fetch_fantacalcio_stats():
     tables = read_html_tables(FANTACALCIO_STATS_URL)
@@ -800,14 +1018,22 @@ def compute_scores(df):
     max_pv = max(float(pv.max()), 1.0)
     max_bonus = max(float(bonus.max()), 1.0)
 
-    out["TitolaritaProxy"] = np.clip(pv / max_pv * 100, 0, 100)
+    # Titolarità reale da FBref, se disponibile; altrimenti proxy PV.
+    if "TitolaritaPct" in out.columns:
+        tit_real = pd.to_numeric(out["TitolaritaPct"], errors="coerce")
+    else:
+        tit_real = pd.Series(np.nan, index=out.index)
+
+    pv_proxy = np.clip(pv / max_pv * 100, 0, 100)
+    out["TitolaritaProxy"] = tit_real.combine_first(pv_proxy).clip(0, 100)
+
     out["FormaScore"] = np.clip((fm - 5.5) / 3.0 * 10, 0, 10)
     out["BonusIndex"] = np.clip(bonus / max_bonus * 10, 0, 10)
 
     out["RendimentoScore"] = (
-        out["FormaScore"] * 0.45
+        out["FormaScore"] * 0.40
         + out["BonusIndex"] * 0.35
-        + (out["TitolaritaProxy"] / 10) * 0.20
+        + (out["TitolaritaProxy"] / 10) * 0.25
     )
 
     return out
@@ -833,6 +1059,7 @@ def load_online_data():
     listone = None
     stats = None
     quotes = None
+    fb_starts = None
 
     try:
         listone = fetch_gazzetta_listone()
@@ -852,15 +1079,23 @@ def load_online_data():
     except Exception as e:
         status["Fantacalcio statistiche"] = f"KO: {e}"
 
+    try:
+        fb_starts = fetch_fbref_starts()
+        status["FBref titolarità"] = f"OK ({len(fb_starts)})"
+    except Exception as e:
+        status["FBref titolarità"] = f"KO: {e}"
+
     if listone is None or listone.empty:
         raise RuntimeError(
             "Non sono riuscito a costruire automaticamente il listone con i ruoli. "
             "Carica il listone ufficiale Classic: l'app lo aggiornerà poi "
-            "automaticamente con QA, FVM e statistiche Fantacalcio."
+            "automaticamente con QA, FVM e statistiche."
         )
 
     listone = merge_live_quotes(listone, quotes)
     data = merge_listone_stats(listone, stats)
+    data = merge_fbref_starts(data, fb_starts)
+    data = compute_scores(data)
 
     return data, stats, status
 
@@ -1282,7 +1517,7 @@ st.markdown(
 
 with st.sidebar:
     st.markdown("### FANTA ASTA")
-    st.caption("Assistant Pro · V5.1")
+    st.caption("Assistant Pro · V6")
 
     st.markdown("#### Sincronizzazione")
     st.session_state["live_sync"] = st.toggle(
@@ -1443,6 +1678,18 @@ with st.sidebar:
 
                 data = merge_listone_stats(parsed, stats)
 
+                try:
+                    fb_starts = fetch_fbref_starts()
+                    data = merge_fbref_starts(data, fb_starts)
+                    data = compute_scores(data)
+                    st.session_state["source_status"][
+                        "FBref titolarità"
+                    ] = f"OK ({len(fb_starts)})"
+                except Exception as e:
+                    st.session_state["source_status"][
+                        "FBref titolarità"
+                    ] = f"KO: {e}"
+
                 st.session_state["giocatori"] = data
                 st.session_state["listone_source"] = (
                     f"File: {uploaded.name}"
@@ -1515,11 +1762,15 @@ def refresh_current_dataset():
 
             quotes = fetch_fantacalcio_quotes()
             stats = fetch_fantacalcio_stats()
+            fb_starts = fetch_fbref_starts()
             base = merge_live_quotes(base, quotes)
             data = merge_listone_stats(base, stats)
+            data = merge_fbref_starts(data, fb_starts)
+            data = compute_scores(data)
             status = {
                 "Fantacalcio quotazioni/FVM": f"OK ({len(quotes)})",
                 "Fantacalcio statistiche": f"OK ({len(stats)})",
+                "FBref titolarità": f"OK ({len(fb_starts)})",
             }
 
         st.session_state["giocatori"] = data
@@ -1613,6 +1864,7 @@ c4.metric(
 if not df.empty:
     fc_q = st.session_state["source_status"].get("Fantacalcio quotazioni/FVM", "—")
     fc_s = st.session_state["source_status"].get("Fantacalcio statistiche", "—")
+    fb_s = st.session_state["source_status"].get("FBref titolarità", "—")
     st.markdown(
         f"""
         <div class="source-strip">
@@ -1620,6 +1872,7 @@ if not df.empty:
           <span class="source-pill">Listone: <strong>{st.session_state['listone_source']}</strong></span>
           <span class="source-pill">QA/FVM: <strong>{fc_q}</strong></span>
           <span class="source-pill">Stats: <strong>{fc_s}</strong></span>
+          <span class="source-pill">Titolarità: <strong>{fb_s}</strong></span>
           <span class="source-pill">Sync: <strong>{st.session_state['last_update'] or '—'}</strong></span>
         </div>
         """,
@@ -1881,18 +2134,35 @@ with tab_asta:
                 unsafe_allow_html=True,
             )
 
-            data_c1, data_c2, data_c3, data_c4, data_c5 = st.columns(5)
-
             def fmt(value, digits=1):
                 if pd.isna(value):
                     return "n.d."
                 return f"{float(value):.{digits}f}"
 
+            data_c1, data_c2, data_c3, data_c4 = st.columns(4)
             data_c1.metric("Presenze", fmt(row["PV"], 0))
-            data_c2.metric("Media voto", fmt(row["MV"], 2))
-            data_c3.metric("Fantamedia", fmt(row["FM"], 2))
-            data_c4.metric("Gol", fmt(row["Gol"], 0))
-            data_c5.metric("Assist", fmt(row["Assist"], 0))
+            data_c2.metric(
+                "Titolarità",
+                (
+                    f"{float(row['TitolaritaPct']):.0f}%"
+                    if pd.notna(row.get("TitolaritaPct"))
+                    else "n.d."
+                ),
+            )
+            data_c3.metric("Gol", fmt(row["Gol"], 0))
+            data_c4.metric("Assist", fmt(row["Assist"], 0))
+
+            data_c5, data_c6, data_c7, data_c8 = st.columns(4)
+            data_c5.metric("Media voto", fmt(row["MV"], 2))
+            data_c6.metric("Fantamedia", fmt(row["FM"], 2))
+            data_c7.metric(
+                "QA",
+                fmt(row["Quotazione"], 0),
+            )
+            data_c8.metric(
+                "FVM",
+                fmt(row.get("FVM"), 0),
+            )
 
             if st.button(
                 f"➕ ACQUISTATO A {current_bid} FM — AGGIUNGI ALLA ROSA",
@@ -1985,7 +2255,7 @@ with tab_consigli:
         else:
             cols = [
                 "Nome", "Squadra", "Fascia", "Quotazione", "FVM",
-                "PV", "MV", "FM", "Gol", "Assist",
+                "PV", "Starts", "TitolaritaPct", "MV", "FM", "Gol", "Assist",
                 "IndiceAcquisto", "Jolly", "Scommessa",
             ]
             cols = [c for c in cols if c in view.columns]
@@ -2055,7 +2325,7 @@ with tab_giocatori:
 
         show_cols = [
             "Nome", "Ruolo", "Squadra", "Quotazione", "FVM",
-            "PV", "MV", "FM", "Gol", "Assist",
+            "PV", "Starts", "TitolaritaPct", "MV", "FM", "Gol", "Assist",
             "RendimentoScore", "PrioritaRosa",
             "ScoreGuidato",
         ]
