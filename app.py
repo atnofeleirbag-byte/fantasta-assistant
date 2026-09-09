@@ -32,7 +32,7 @@ FANTACALCIO_STATS_URL = (
 FANTACALCIO_QUOTES_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio"
 
 FANTACALCIO_SEASON_FORMATIONS_URL = (
-    "https://www.fantacalcio.it/news/calcio-italia/06_08_2026/"
+    "https://www.fantacalcio.it/amp/news/calcio-italia/06_08_2026/"
     "asta-fantacalcio-le-probabili-formazioni-della-serie-a-enilive-2026-27-495558"
 )
 FANTACALCIO_MATCHDAY_FORMATIONS_URL = (
@@ -264,6 +264,400 @@ st.markdown(
         .app-hero {padding:20px;}
         .hero-row {align-items:flex-start; flex-direction:column;}
         .hero-title {font-size:24px;}
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Design system V9
+st.markdown(
+    """
+    <style>
+    /* ---------- FOUNDATION ---------- */
+    :root{
+        --fa-bg:#f7f8fb;
+        --fa-surface:#ffffff;
+        --fa-surface-2:#f2f4f7;
+        --fa-text:#101828;
+        --fa-muted:#667085;
+        --fa-line:#e4e7ec;
+        --fa-brand:#101828;
+        --fa-green:#12b76a;
+        --fa-green-soft:#ecfdf3;
+        --fa-amber:#f79009;
+        --fa-amber-soft:#fffaeb;
+        --fa-red:#f04438;
+        --fa-red-soft:#fef3f2;
+        --fa-blue:#2e90fa;
+        --fa-radius:18px;
+        --fa-shadow:0 8px 28px rgba(16,24,40,.055);
+    }
+
+    html { scroll-behavior:smooth; }
+    .stApp { background:var(--fa-bg); }
+
+    .block-container{
+        max-width:1320px;
+        padding-top:.8rem;
+        padding-bottom:4rem;
+    }
+
+    /* ---------- SIDEBAR ---------- */
+    section[data-testid="stSidebar"]{
+        min-width:292px !important;
+        max-width:292px !important;
+        border-right:1px solid var(--fa-line);
+        box-shadow:none;
+    }
+    section[data-testid="stSidebar"] > div{
+        background:#fff;
+    }
+    section[data-testid="stSidebar"] .stButton > button{
+        width:100%;
+    }
+
+    /* ---------- HERO ---------- */
+    .app-hero{
+        background:
+            radial-gradient(circle at 88% 20%, rgba(255,255,255,.10), transparent 24%),
+            linear-gradient(135deg,#101828 0%,#1d2939 100%);
+        border:1px solid rgba(255,255,255,.06);
+        border-radius:24px;
+        padding:26px 28px;
+        box-shadow:0 14px 38px rgba(16,24,40,.12);
+        margin-bottom:14px;
+    }
+    .hero-title{
+        font-size:31px;
+        line-height:1.08;
+        letter-spacing:-.045em;
+        font-weight:800;
+    }
+    .hero-sub{
+        font-size:14px;
+        max-width:650px;
+        color:#d0d5dd;
+        line-height:1.55;
+    }
+    .live-badge{
+        background:rgba(255,255,255,.07);
+        border:1px solid rgba(255,255,255,.13);
+        backdrop-filter:blur(8px);
+    }
+
+    /* ---------- KPI ---------- */
+    div[data-testid="stMetric"]{
+        background:var(--fa-surface);
+        border:1px solid var(--fa-line);
+        border-radius:18px;
+        box-shadow:none;
+        padding:15px 17px 14px;
+    }
+    div[data-testid="stMetric"]:hover{
+        border-color:#d0d5dd;
+        box-shadow:var(--fa-shadow);
+        transition:.18s ease;
+    }
+    div[data-testid="stMetricLabel"] p{
+        font-size:12px;
+        font-weight:650;
+        color:var(--fa-muted);
+    }
+    div[data-testid="stMetricValue"]{
+        font-weight:790;
+        color:var(--fa-text);
+    }
+    div[data-testid="stMetricDelta"]{
+        font-size:11px;
+    }
+
+    /* ---------- NAV ---------- */
+    .stTabs [data-baseweb="tab-list"]{
+        position:sticky;
+        top:.4rem;
+        z-index:20;
+        gap:5px;
+        padding:5px;
+        border:1px solid var(--fa-line);
+        border-radius:15px;
+        background:rgba(255,255,255,.94);
+        backdrop-filter:blur(12px);
+        box-shadow:0 8px 24px rgba(16,24,40,.045);
+        margin-bottom:16px;
+        flex-wrap:nowrap;
+        overflow-x:auto;
+    }
+    .stTabs [data-baseweb="tab"]{
+        border:0;
+        border-radius:10px;
+        background:transparent;
+        color:#475467;
+        font-weight:650;
+        height:39px;
+        padding:0 13px;
+        white-space:nowrap;
+    }
+    .stTabs [aria-selected="true"]{
+        background:#101828 !important;
+        color:#fff !important;
+        border:0 !important;
+        box-shadow:0 2px 8px rgba(16,24,40,.15);
+    }
+
+    /* ---------- FORMS ---------- */
+    .stButton > button,
+    .stFormSubmitButton > button{
+        min-height:44px;
+        border-radius:12px;
+        font-weight:700;
+        border:1px solid #d0d5dd;
+        box-shadow:none;
+    }
+    .stButton > button[kind="primary"],
+    .stFormSubmitButton > button[kind="primary"]{
+        background:#101828;
+        border-color:#101828;
+        color:#fff;
+    }
+    .stButton > button[kind="primary"]:hover,
+    .stFormSubmitButton > button[kind="primary"]:hover{
+        background:#1d2939;
+        border-color:#1d2939;
+    }
+
+    .stTextInput input,
+    .stNumberInput input,
+    div[data-baseweb="select"] > div{
+        min-height:44px;
+        border-radius:12px !important;
+        border-color:#d0d5dd !important;
+        background:#fff !important;
+    }
+    .stTextInput input:focus,
+    .stNumberInput input:focus{
+        border-color:#98a2b3 !important;
+        box-shadow:0 0 0 3px rgba(152,162,179,.12) !important;
+    }
+
+    /* ---------- TABLE ---------- */
+    div[data-testid="stDataFrame"]{
+        border:1px solid var(--fa-line);
+        border-radius:16px;
+        overflow:hidden;
+        box-shadow:none;
+        background:#fff;
+    }
+
+    /* ---------- PRODUCT CARDS ---------- */
+    .fa-grid{
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:10px;
+        margin:10px 0 17px;
+    }
+    .fa-role-card{
+        background:#fff;
+        border:1px solid var(--fa-line);
+        border-radius:16px;
+        padding:14px 15px;
+        min-height:112px;
+    }
+    .fa-role-top{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        margin-bottom:10px;
+    }
+    .fa-role-name{
+        font-size:12px;
+        font-weight:800;
+        color:#344054;
+        text-transform:uppercase;
+        letter-spacing:.065em;
+    }
+    .fa-role-count{
+        font-size:12px;
+        color:#667085;
+        font-weight:650;
+    }
+    .fa-role-value{
+        font-size:22px;
+        line-height:1;
+        font-weight:800;
+        color:#101828;
+        letter-spacing:-.035em;
+        margin-bottom:8px;
+    }
+    .fa-role-meta{
+        font-size:11px;
+        color:#667085;
+        margin-top:7px;
+    }
+    .fa-progress{
+        height:7px;
+        border-radius:999px;
+        background:#eaecf0;
+        overflow:hidden;
+    }
+    .fa-progress > span{
+        display:block;
+        height:100%;
+        border-radius:999px;
+        background:#101828;
+    }
+
+    .fa-section-head{
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-end;
+        gap:14px;
+        margin:7px 0 12px;
+    }
+    .fa-section-title{
+        font-size:21px;
+        font-weight:800;
+        letter-spacing:-.035em;
+        color:#101828;
+    }
+    .fa-section-desc{
+        color:#667085;
+        font-size:13px;
+        line-height:1.45;
+        max-width:720px;
+        margin-top:3px;
+    }
+
+    .fa-player-card{
+        background:#fff;
+        border:1px solid var(--fa-line);
+        border-radius:20px;
+        padding:19px 20px;
+        margin:10px 0 12px;
+        box-shadow:0 7px 20px rgba(16,24,40,.035);
+    }
+    .fa-player-head{
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:16px;
+    }
+    .fa-player-name{
+        font-size:24px;
+        font-weight:820;
+        color:#101828;
+        letter-spacing:-.04em;
+        line-height:1.08;
+    }
+    .fa-player-meta{
+        color:#667085;
+        font-size:12px;
+        margin-top:5px;
+    }
+    .fa-price-badge{
+        text-align:right;
+        min-width:100px;
+    }
+    .fa-price-label{
+        font-size:10px;
+        color:#667085;
+        text-transform:uppercase;
+        font-weight:800;
+        letter-spacing:.075em;
+    }
+    .fa-price-value{
+        font-size:25px;
+        font-weight:820;
+        color:#101828;
+        letter-spacing:-.04em;
+    }
+
+    .fa-mini-grid{
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:8px;
+        margin-top:14px;
+    }
+    .fa-mini{
+        border:1px solid #eaecf0;
+        background:#f9fafb;
+        border-radius:12px;
+        padding:10px 11px;
+    }
+    .fa-mini-label{
+        font-size:10px;
+        color:#667085;
+        font-weight:700;
+        text-transform:uppercase;
+        letter-spacing:.055em;
+    }
+    .fa-mini-value{
+        font-size:16px;
+        color:#101828;
+        font-weight:780;
+        margin-top:2px;
+    }
+
+    .fa-note{
+        background:#f9fafb;
+        border:1px solid #eaecf0;
+        border-radius:13px;
+        padding:11px 13px;
+        color:#475467;
+        font-size:12px;
+        line-height:1.5;
+        margin:8px 0 12px;
+    }
+
+    .fa-empty{
+        background:#fff;
+        border:1px dashed #d0d5dd;
+        border-radius:17px;
+        padding:26px 20px;
+        text-align:center;
+        color:#667085;
+    }
+    .fa-empty strong{
+        display:block;
+        color:#344054;
+        font-size:15px;
+        margin-bottom:4px;
+    }
+
+    .decision{
+        border-radius:14px;
+        border:1px solid;
+        box-shadow:none;
+        padding:13px 15px;
+    }
+    .decision.good{background:var(--fa-green-soft);border-color:#abefc6;color:#067647;}
+    .decision.ok{background:var(--fa-amber-soft);border-color:#fedf89;color:#b54708;}
+    .decision.bad{background:var(--fa-red-soft);border-color:#fecdca;color:#b42318;}
+
+    /* ---------- TEXT ---------- */
+    h1,h2,h3,h4{color:#101828;}
+    .stCaptionContainer{color:#667085;}
+
+    /* ---------- MOBILE ---------- */
+    @media(max-width:900px){
+        .fa-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+        .fa-mini-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+    }
+    @media(max-width:700px){
+        .block-container{padding-left:.85rem;padding-right:.85rem;}
+        .app-hero{padding:20px 18px;border-radius:20px;}
+        .hero-title{font-size:25px;}
+        .hero-row{flex-direction:column;align-items:flex-start;}
+        .fa-grid{grid-template-columns:1fr 1fr;gap:8px;}
+        .fa-role-card{min-height:102px;padding:12px;}
+        .fa-player-head{flex-direction:column;}
+        .fa-price-badge{text-align:left;}
+        .stTabs [data-baseweb="tab-list"]{top:.2rem;}
+        section[data-testid="stSidebar"]{
+            min-width:260px !important;
+            max-width:260px !important;
+        }
     }
     </style>
     """,
@@ -1300,6 +1694,154 @@ def read_uploaded_listone(uploaded_file):
 # FONTI ONLINE
 # ------------------------------------------------------------
 
+
+@st.cache_data(ttl=120, show_spinner=False)
+def reader_markdown(url):
+    reader_url = "https://r.jina.ai/" + url
+    r = requests.get(
+        reader_url,
+        headers={
+            "User-Agent": HEADERS["User-Agent"],
+            "Accept": "text/plain",
+            "Cache-Control": "no-cache",
+        },
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.text
+
+
+def _pipe_fields(line):
+    parts = [x.strip() for x in line.strip().split("|")]
+    if parts and parts[0] == "":
+        parts = parts[1:]
+    if parts and parts[-1] == "":
+        parts = parts[:-1]
+    return parts
+
+
+def parse_stats_markdown(md):
+    rows = []
+    for raw in md.splitlines():
+        if "|" not in raw:
+            continue
+
+        fields = _pipe_fields(raw)
+        if len(fields) < 10:
+            continue
+
+        team_idx = None
+        for i, f in enumerate(fields):
+            if re.fullmatch(r"[A-Z]{3}", f or ""):
+                team_idx = i
+                break
+
+        if team_idx is None or team_idx < 1:
+            continue
+
+        name = ""
+        for j in range(team_idx - 1, -1, -1):
+            if fields[j]:
+                name = fields[j]
+                break
+
+        if not name or name.lower() in {"calciatore", "nome"}:
+            continue
+
+        after = fields[team_idx + 1:]
+        if len(after) < 10:
+            continue
+
+        def num(value):
+            if value is None:
+                return np.nan
+            s = str(value).strip().replace(".", "").replace(",", ".")
+            s = re.sub(r"[^\d\.-]", "", s)
+            return pd.to_numeric(s, errors="coerce")
+
+        pv = num(after[0])
+        if pd.isna(pv):
+            continue
+
+        rows.append({
+            "Nome": clean_name(name),
+            "Squadra_STATS": fields[team_idx],
+            "PV": pv,
+            "MV": num(after[1]),
+            "FM": num(after[2]),
+            "Gol": num(after[3]),
+            "Assist": num(after[7]) if len(after) > 7 else np.nan,
+            "Amm": num(after[8]) if len(after) > 8 else np.nan,
+            "Esp": num(after[9]) if len(after) > 9 else np.nan,
+        })
+
+    if not rows:
+        raise ValueError("nessuna riga statistiche trovata nel reader")
+
+    out = pd.DataFrame(rows)
+    out["_key"] = out["Nome"].map(key_name)
+    return out.drop_duplicates("_key").reset_index(drop=True)
+
+
+def parse_quotes_markdown(md):
+    rows = []
+
+    for raw in md.splitlines():
+        if "|" not in raw:
+            continue
+
+        fields = _pipe_fields(raw)
+        if len(fields) < 7:
+            continue
+
+        team_idx = None
+        for i, f in enumerate(fields):
+            if re.fullmatch(r"[A-Z]{3}", f or ""):
+                team_idx = i
+                break
+
+        if team_idx is None or team_idx < 1:
+            continue
+
+        name = ""
+        for j in range(team_idx - 1, -1, -1):
+            if fields[j]:
+                name = fields[j]
+                break
+
+        if not name or name.lower() in {"calciatore", "nome"}:
+            continue
+
+        after = fields[team_idx + 1:]
+        if len(after) < 3:
+            continue
+
+        def num(value):
+            s = str(value).strip().replace(".", "").replace(",", ".")
+            s = re.sub(r"[^\d\.-]", "", s)
+            return pd.to_numeric(s, errors="coerce")
+
+        qa = num(after[1])
+        fvm = num(after[2])
+        if pd.isna(qa):
+            continue
+
+        rows.append({
+            "Nome": clean_name(name),
+            "Squadra_FC": fields[team_idx],
+            "QI_FC": num(after[0]),
+            "QA_FC": qa,
+            "FVM": fvm,
+        })
+
+    if not rows:
+        raise ValueError("nessuna quotazione trovata nel reader")
+
+    out = pd.DataFrame(rows)
+    out["_key"] = out["Nome"].map(key_name)
+    return out.drop_duplicates("_key").reset_index(drop=True)
+
+
 @st.cache_data(ttl=45, show_spinner=False)
 def read_html_tables(url, cache_bucket=None):
     # cache_bucket cambia ogni minuto e impedisce a CDN/browser di restituire
@@ -1403,89 +1945,84 @@ def fetch_gazzetta_listone():
 
 @st.cache_data(ttl=45, show_spinner=False)
 def fetch_fantacalcio_quotes():
-    """
-    Recupera dalla pagina Quotazioni Fantacalcio.it i valori Classic correnti:
-    QI, QA e FVM. La fonte viene usata per aggiornare il listone già dotato
-    di ruoli (Gazzetta o file ufficiale caricato dall'utente).
-    """
-    tables = read_html_tables(FANTACALCIO_QUOTES_URL)
+    errors = []
 
-    best = None
-    best_score = -1
+    try:
+        md = reader_markdown(FANTACALCIO_QUOTES_URL)
+        out = parse_quotes_markdown(md)
+        out.attrs["source"] = "Fantacalcio via Reader"
+        return out
+    except Exception as e:
+        errors.append(f"reader: {e}")
 
-    for raw in tables:
-        df = flatten_columns(raw)
-        text = " ".join(map(str, df.columns)).lower()
-        score = (
-            int("fvm" in text) * 2
-            + int("qa" in text) * 2
-            + int("qi" in text)
-            + int("calciatore" in text)
-        )
-        if len(df) >= 100 and score > best_score:
-            best = df
-            best_score = score
+    try:
+        tables = read_html_tables(FANTACALCIO_QUOTES_URL)
+        best = None
+        best_score = -1
 
-    if best is None:
-        raise ValueError("tabella quotazioni Fantacalcio non trovata")
-
-    c_nome = pick_col(best, ["Calciatore", "Giocatore", "Nome"])
-    c_sq = pick_col(best, ["Sq", "Squadra"])
-
-    # In pagina ci sono colonne Classic e Mantra duplicate.
-    # Pandas di solito rende le seconde QA.1 / QI.1 ecc.; prendiamo la prima.
-    cols_norm = [(c, norm_header(c)) for c in best.columns]
-
-    def first_matching(prefix):
-        exact = [c for c, n in cols_norm if n == prefix]
-        if exact:
-            return exact[0]
-        begins = [c for c, n in cols_norm if n.startswith(prefix)]
-        return begins[0] if begins else None
-
-    c_qi = first_matching("qi")
-    c_qa = first_matching("qa")
-    c_fvm = next(
-        (c for c, n in cols_norm if n.startswith("fvm")),
-        None
-    )
-
-    if c_nome is None:
-        object_cols = [c for c in best.columns if best[c].dtype == object]
-        object_cols = [
-            c for c in object_cols
-            if c != c_sq
-        ]
-        if object_cols:
-            c_nome = max(
-                object_cols,
-                key=lambda c: best[c].astype(str).str.len().mean()
+        for raw in tables:
+            df = flatten_columns(raw)
+            text = " ".join(map(str, df.columns)).lower()
+            score = (
+                int("fvm" in text) * 2
+                + int("qa" in text) * 2
+                + int("qi" in text)
+                + int("calciatore" in text)
             )
+            if len(df) >= 100 and score > best_score:
+                best = df
+                best_score = score
 
-    if c_nome is None or c_qa is None:
-        raise ValueError("colonne quotazioni Fantacalcio non riconosciute")
+        if best is None:
+            raise ValueError("tabella quotazioni non trovata")
 
-    out = pd.DataFrame({
-        "Nome": best[c_nome].map(clean_name),
-        "Squadra_FC": (
-            best[c_sq].astype(str).str.strip()
-            if c_sq is not None else ""
-        ),
-        "QI_FC": (
-            to_num(best[c_qi])
-            if c_qi is not None else np.nan
-        ),
-        "QA_FC": to_num(best[c_qa]),
-        "FVM": (
-            to_num(best[c_fvm])
-            if c_fvm is not None else np.nan
-        ),
-    })
+        c_nome = pick_col(best, ["Calciatore", "Giocatore", "Nome"])
+        c_sq = pick_col(best, ["Sq", "Squadra"])
+        cols_norm = [(c, norm_header(c)) for c in best.columns]
 
-    out = out[out["Nome"].notna() & (out["Nome"].str.len() > 1)].copy()
-    out["_key"] = out["Nome"].map(key_name)
+        def first_matching(prefix):
+            exact = [c for c, n in cols_norm if n == prefix]
+            if exact:
+                return exact[0]
+            begins = [c for c, n in cols_norm if n.startswith(prefix)]
+            return begins[0] if begins else None
 
-    return out.drop_duplicates("_key").reset_index(drop=True)
+        c_qi = first_matching("qi")
+        c_qa = first_matching("qa")
+        c_fvm = next((c for c, n in cols_norm if n.startswith("fvm")), None)
+
+        if c_nome is None:
+            object_cols = [c for c in best.columns if best[c].dtype == object]
+            if object_cols:
+                c_nome = max(
+                    object_cols,
+                    key=lambda c: best[c].astype(str).str.len().mean()
+                )
+
+        if c_nome is None or c_qa is None:
+            raise ValueError("colonne quotazioni non riconosciute")
+
+        out = pd.DataFrame({
+            "Nome": best[c_nome].map(clean_name),
+            "Squadra_FC": (
+                best[c_sq].astype(str).str.strip()
+                if c_sq is not None else ""
+            ),
+            "QI_FC": to_num(best[c_qi]) if c_qi is not None else np.nan,
+            "QA_FC": to_num(best[c_qa]),
+            "FVM": to_num(best[c_fvm]) if c_fvm is not None else np.nan,
+        })
+
+        out = out[out["Nome"].notna() & (out["Nome"].str.len() > 1)].copy()
+        out["_key"] = out["Nome"].map(key_name)
+        out = out.drop_duplicates("_key").reset_index(drop=True)
+        out.attrs["source"] = "Fantacalcio HTML"
+        return out
+
+    except Exception as e:
+        errors.append(f"html: {e}")
+
+    raise ValueError(" | ".join(errors))
 
 
 def merge_live_quotes(dataframe, quotes):
@@ -1734,121 +2271,102 @@ def merge_fbref_starts(dataframe, fb):
 
 @st.cache_data(ttl=45, show_spinner=False)
 def fetch_fantacalcio_stats():
-    """
-    Parser robusto per la tabella Fantacalcio 2026/27.
-    Usa prima i nomi colonna; se Fantacalcio restituisce header vuoti/duplicati,
-    usa la struttura nota della tabella:
-    Calciatore | Sq | PV | MV | FM | Gol | GS | Rig | RP | Ass | Amm | Esp.
-    """
-    tables = read_html_tables(FANTACALCIO_STATS_URL)
+    errors = []
 
-    best = None
-    best_score = -1
+    try:
+        md = reader_markdown(FANTACALCIO_STATS_URL)
+        out = parse_stats_markdown(md)
+        out.attrs["source"] = "Fantacalcio via Reader"
+        return out
+    except Exception as e:
+        errors.append(f"reader: {e}")
 
-    for raw in tables:
-        df = flatten_columns(raw)
-        text = " ".join(map(str, df.columns)).lower()
+    try:
+        tables = read_html_tables(FANTACALCIO_STATS_URL)
+        best = None
+        best_score = -1
 
-        score = (
-            int("pv" in text) * 2
-            + int("mv" in text) * 2
-            + int("fm" in text) * 2
-            + int("gol" in text)
-            + int("ass" in text)
-        )
+        for raw in tables:
+            df = flatten_columns(raw)
+            text = " ".join(map(str, df.columns)).lower()
+            score = (
+                int("pv" in text) * 2
+                + int("mv" in text) * 2
+                + int("fm" in text) * 2
+                + int("gol" in text)
+                + int("ass" in text)
+            )
+            if len(df) >= 20 and score > best_score:
+                best = df.copy()
+                best_score = score
 
-        if len(df) >= 20 and score > best_score:
-            best = df.copy()
-            best_score = score
+        if best is None:
+            raise ValueError("tabella HTML non trovata")
 
-    if best is None:
-        raise ValueError("tabella statistiche Fantacalcio non trovata")
+        df = best
+        c_pv = pick_col(df, ["PV"])
+        c_mv = pick_col(df, ["MV"])
+        c_fm = pick_col(df, ["FM"])
+        c_gol = pick_col(df, ["Gol"])
+        c_ass = pick_col(df, ["Ass", "Assist"])
+        c_amm = pick_col(df, ["Amm"])
+        c_esp = pick_col(df, ["Esp"])
+        c_sq = pick_col(df, ["Sq", "Squadra"])
+        c_nome = pick_col(df, ["Calciatore", "Giocatore", "Nome"])
 
-    df = best.copy()
+        if c_nome is None:
+            candidates = []
+            for c in df.columns:
+                s = df[c].astype(str).str.strip()
+                alpha = s.str.contains(r"[A-Za-zÀ-ÿ]", regex=True, na=False).mean()
+                numeric = pd.to_numeric(
+                    s.str.replace(",", ".", regex=False),
+                    errors="coerce"
+                ).notna().mean()
+                teamish = s.str.fullmatch(r"[A-Z]{3}", na=False).mean()
+                avg_len = s.str.len().mean()
+                candidates.append(
+                    (alpha * 4 - numeric * 3 - teamish * 3 + min(avg_len / 10, 2), c)
+                )
+            c_nome = max(candidates, key=lambda x: x[0])[1]
 
-    # Individua colonne statistiche standard.
-    c_pv = pick_col(df, ["PV"])
-    c_mv = pick_col(df, ["MV"])
-    c_fm = pick_col(df, ["FM"])
-    c_gol = pick_col(df, ["Gol"])
-    c_ass = pick_col(df, ["Ass", "Assist"])
-    c_amm = pick_col(df, ["Amm"])
-    c_esp = pick_col(df, ["Esp"])
-    c_sq = pick_col(df, ["Sq", "Squadra"])
+        if c_pv is None:
+            raise ValueError("PV non riconosciuta")
 
-    # Nome: può avere header "Calciatore", oppure essere una delle colonne Unnamed.
-    c_nome = pick_col(df, ["Calciatore", "Giocatore", "Nome"])
+        out = pd.DataFrame({
+            "Nome": df[c_nome].map(clean_name),
+            "Squadra_STATS": (
+                df[c_sq].astype(str).str.strip()
+                if c_sq is not None else ""
+            ),
+            "PV": to_num(df[c_pv]),
+            "MV": to_num(df[c_mv]) if c_mv is not None else np.nan,
+            "FM": to_num(df[c_fm]) if c_fm is not None else np.nan,
+            "Gol": to_num(df[c_gol]) if c_gol is not None else np.nan,
+            "Assist": to_num(df[c_ass]) if c_ass is not None else np.nan,
+            "Amm": to_num(df[c_amm]) if c_amm is not None else np.nan,
+            "Esp": to_num(df[c_esp]) if c_esp is not None else np.nan,
+        })
 
-    if c_nome is None:
-        # Cerca la colonna testuale che sembra contenere nomi di calciatori.
-        candidate_scores = []
-        for c in df.columns:
-            s = df[c].astype(str).str.strip()
-            # Nomi: molte stringhe alfabetiche, lunghezza media > 4,
-            # non sono team code da 3 lettere.
-            alpha = s.str.contains(r"[A-Za-zÀ-ÿ]", regex=True, na=False).mean()
-            avg_len = s.str.len().replace(0, np.nan).mean()
-            three_letter = s.str.fullmatch(r"[A-Z]{3}", na=False).mean()
-            numeric = pd.to_numeric(
-                s.str.replace(",", ".", regex=False),
-                errors="coerce",
-            ).notna().mean()
-            score = alpha * 3 + min(float(avg_len or 0) / 10, 2) - three_letter * 3 - numeric * 3
-            candidate_scores.append((score, c))
+        out = out[
+            out["Nome"].notna()
+            & (out["Nome"].str.len() > 1)
+            & out["PV"].notna()
+        ].copy()
 
-        if candidate_scores:
-            c_nome = max(candidate_scores, key=lambda x: x[0])[1]
+        out["_key"] = out["Nome"].map(key_name)
+        out = out.drop_duplicates("_key").reset_index(drop=True)
 
-    if c_nome is None:
-        raise ValueError("colonna nome giocatore Fantacalcio non riconosciuta")
+        if out.empty:
+            raise ValueError("tabella HTML vuota")
 
-    # Se qualche colonna standard manca, ricostruisci per posizione relativa
-    # partendo da PV: in Fantacalcio le statistiche sono contigue.
-    cols = list(df.columns)
-    if c_pv is not None:
-        pv_idx = cols.index(c_pv)
+        out.attrs["source"] = "Fantacalcio HTML"
+        return out
 
-        def col_at(offset):
-            idx = pv_idx + offset
-            return cols[idx] if 0 <= idx < len(cols) else None
+    except Exception as e:
+        errors.append(f"html: {e}")
 
-        c_mv = c_mv or col_at(1)
-        c_fm = c_fm or col_at(2)
-        c_gol = c_gol or col_at(3)
-        # Ass è 8 colonne dopo PV nella struttura corrente:
-        # PV, MV, FM, Gol, GS, Rig, RP, Ass
-        c_ass = c_ass or col_at(7)
-        c_amm = c_amm or col_at(8)
-        c_esp = c_esp or col_at(9)
-
-    out = pd.DataFrame({
-        "Nome": df[c_nome].map(clean_name),
-        "PV": to_num(df[c_pv]) if c_pv is not None else np.nan,
-        "MV": to_num(df[c_mv]) if c_mv is not None else np.nan,
-        "FM": to_num(df[c_fm]) if c_fm is not None else np.nan,
-        "Gol": to_num(df[c_gol]) if c_gol is not None else np.nan,
-        "Assist": to_num(df[c_ass]) if c_ass is not None else np.nan,
-        "Amm": to_num(df[c_amm]) if c_amm is not None else np.nan,
-        "Esp": to_num(df[c_esp]) if c_esp is not None else np.nan,
-        "Squadra_STATS": (
-            df[c_sq].astype(str).str.strip()
-            if c_sq is not None else ""
-        ),
-    })
-
-    out = out[
-        out["Nome"].notna()
-        & (out["Nome"].str.len() > 1)
-        & out["PV"].notna()
-    ].copy()
-
-    out["_key"] = out["Nome"].map(key_name)
-    out = out.drop_duplicates("_key").reset_index(drop=True)
-
-    if out.empty:
-        raise ValueError("Fantacalcio ha restituito la tabella ma senza righe statistiche valide")
-
-    return out
+    raise ValueError(" | ".join(errors))
 
 
 def compute_scores(df):
@@ -1931,13 +2449,17 @@ def load_online_data():
 
     try:
         quotes = fetch_fantacalcio_quotes()
-        status["Fantacalcio quotazioni/FVM"] = f"OK ({len(quotes)})"
+        status["Fantacalcio quotazioni/FVM"] = (
+            f"OK ({len(quotes)}) · {quotes.attrs.get('source', 'Fantacalcio')}"
+        )
     except Exception as e:
         status["Fantacalcio quotazioni/FVM"] = f"KO: {e}"
 
     try:
         stats = fetch_fantacalcio_stats()
-        status["Fantacalcio statistiche"] = f"OK ({len(stats)})"
+        status["Fantacalcio statistiche"] = (
+            f"OK ({len(stats)}) · {stats.attrs.get('source', 'Fantacalcio')}"
+        )
     except Exception as e:
         status["Fantacalcio statistiche"] = f"KO: {e}"
 
@@ -2357,83 +2879,109 @@ def build_buying_advice(available_df):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_season_formations():
-    """
-    Estrae dall'articolo Fantacalcio le 20 formazioni base 2026/27:
-    allenatore, modulo, probabile XI, ballottaggi, rigoristi e piazzati.
-    """
-    r = requests.get(
-        FANTACALCIO_SEASON_FORMATIONS_URL,
-        headers={
-            **HEADERS,
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        },
-        timeout=20,
-    )
-    r.raise_for_status()
+    errors = []
+    text = None
+    source = None
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    try:
+        text = reader_markdown(FANTACALCIO_SEASON_FORMATIONS_URL)
+        source = "Fantacalcio via Reader"
+    except Exception as e:
+        errors.append(f"reader: {e}")
 
-    teams = [
-        "Atalanta", "Bologna", "Cagliari", "Como", "Fiorentina",
-        "Frosinone", "Genoa", "Inter", "Juventus", "Lazio",
-        "Lecce", "Milan", "Monza", "Napoli", "Parma",
-        "Roma", "Sassuolo", "Torino", "Udinese", "Venezia",
+    if not text:
+        try:
+            r = requests.get(
+                FANTACALCIO_SEASON_FORMATIONS_URL,
+                headers=HEADERS,
+                timeout=20,
+            )
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+            text = soup.get_text("\n", strip=True)
+            source = "Fantacalcio AMP"
+        except Exception as e:
+            errors.append(f"html: {e}")
+
+    if not text:
+        raise ValueError(" | ".join(errors))
+
+    team_names = [
+        "ATALANTA", "BOLOGNA", "CAGLIARI", "COMO", "FIORENTINA",
+        "FROSINONE", "GENOA", "INTER", "JUVENTUS", "LAZIO",
+        "LECCE", "MILAN", "MONZA", "NAPOLI", "PARMA",
+        "ROMA", "SASSUOLO", "TORINO", "UDINESE", "VENEZIA",
     ]
 
-    text = soup.get_text("\n", strip=True)
-    lines = [re.sub(r"\s+", " ", x).strip() for x in text.splitlines()]
-    lines = [x for x in lines if x]
+    normalized = text.replace("\r", "\n")
+    positions = []
 
-    result = []
+    for team in team_names:
+        matches = []
+        for p in [
+            rf"(?m)^##\s+{re.escape(team)}\s*$",
+            rf"(?m)^\s*{re.escape(team)}\s*$",
+        ]:
+            m = re.search(p, normalized, flags=re.I)
+            if m:
+                matches.append(m)
+        if matches:
+            m = min(matches, key=lambda x: x.start())
+            positions.append((m.start(), team, m.end()))
 
-    # Trova ogni squadra come heading/linea esatta, poi legge fino alla prossima squadra.
-    upper_teams = {t.upper(): t for t in teams}
+    positions.sort()
+    rows = []
 
-    starts = []
-    for i, line in enumerate(lines):
-        if line.upper() in upper_teams:
-            starts.append((i, upper_teams[line.upper()]))
+    for i, (start, team, content_start) in enumerate(positions):
+        end = positions[i + 1][0] if i + 1 < len(positions) else len(normalized)
+        block = normalized[content_start:end]
 
-    # Deduplica occorrenze ravvicinate mantenendo la prima utile.
-    filtered = []
-    seen = set()
-    for idx, team in starts:
-        if team not in seen:
-            filtered.append((idx, team))
-            seen.add(team)
+        def one_line(label):
+            m = re.search(
+                rf"(?im)^\s*{re.escape(label)}\s*:\s*(.+?)\s*$",
+                block,
+            )
+            return re.sub(r"\s+", " ", m.group(1)).strip(" .") if m else ""
 
-    for pos, (idx, team) in enumerate(filtered):
-        end = filtered[pos + 1][0] if pos + 1 < len(filtered) else min(idx + 30, len(lines))
-        block = lines[idx + 1:end]
+        allenatore = one_line("Allenatore")
+        modulo = one_line("Modulo")
+        ballottaggi = one_line("Ballottaggi")
+        rigoristi = one_line("Rigoristi")
+        piazzati = one_line("Calci da fermo")
 
-        def find_value(prefixes):
-            for line in block:
-                low = line.lower()
-                for p in prefixes:
-                    if low.startswith(p.lower()):
-                        parts = line.split(":", 1)
-                        return parts[1].strip() if len(parts) == 2 else line
-            return ""
+        fm = re.search(
+            r"(?is)Probabile formazione[^\n:]*\s*:\s*(.*?)"
+            r"(?=\n\s*Ballottaggi\s*:|\n\s*Rigoristi\s*:|\n\s*Calci da fermo\s*:|\n##\s|\Z)",
+            block,
+        )
+        formazione = (
+            re.sub(r"\s+", " ", fm.group(1)).strip(" .")
+            if fm else ""
+        )
 
-        allenatore = find_value(["Allenatore"])
-        modulo = find_value(["Modulo"])
-        formazione = find_value(["Probabile formazione", "Formazione"])
-        ballottaggi = find_value(["Ballottaggi"])
-        rigoristi = find_value(["Rigoristi"])
-        piazzati = find_value(["Calci da fermo", "Piazzati"])
-
-        result.append({
-            "Squadra": team,
+        rows.append({
+            "Squadra": team.title(),
             "Allenatore": allenatore,
             "Modulo": modulo,
             "Formazione": formazione,
             "Ballottaggi": ballottaggi,
             "Rigoristi": rigoristi,
             "Piazzati": piazzati,
+            "Fonte": source,
         })
 
-    return pd.DataFrame(result)
+    out = pd.DataFrame(rows)
+
+    valid_xi = (
+        (out["Formazione"].astype(str).str.len() >= 10).sum()
+        if not out.empty else 0
+    )
+    if out.empty or valid_xi < 15:
+        raise ValueError(
+            f"formazioni incomplete: {valid_xi}/{len(out)} con XI valido"
+        )
+
+    return out
 
 
 def split_starting_xi(formazione_text):
@@ -2452,6 +3000,156 @@ def split_starting_xi(formazione_text):
     )
     players = [p.strip() for p in cleaned.split(",") if p.strip()]
     return players[:11]
+
+
+
+# ------------------------------------------------------------
+# UI HELPERS V9
+# ------------------------------------------------------------
+
+ROLE_LABELS = {
+    "P": "Portieri",
+    "D": "Difensori",
+    "C": "Centrocampisti",
+    "A": "Attaccanti",
+}
+
+
+def ui_fmt(value, digits=0, suffix=""):
+    if value is None or pd.isna(value):
+        return "n.d."
+    try:
+        if digits == 0:
+            txt = str(int(round(float(value))))
+        else:
+            txt = f"{float(value):.{digits}f}"
+        return f"{txt}{suffix}"
+    except Exception:
+        return str(value)
+
+
+def render_role_progress():
+    cards = []
+    for role in "PDCA":
+        occupied = slot_occupati(role)
+        total = int(st.session_state["slot"][role])
+        pct = min(max((occupied / total * 100) if total else 0, 0), 100)
+        spent = int(speso_reparto(role))
+        target = int(round(target_reparto(role)))
+        cards.append(
+            f"""
+            <div class="fa-role-card">
+                <div class="fa-role-top">
+                    <div class="fa-role-name">{ROLE_LABELS[role]}</div>
+                    <div class="fa-role-count">{occupied}/{total}</div>
+                </div>
+                <div class="fa-role-value">{spent} FM</div>
+                <div class="fa-progress"><span style="width:{pct:.1f}%"></span></div>
+                <div class="fa-role-meta">Target reparto {target} FM · {slot_liberi(role)} slot liberi</div>
+            </div>
+            """
+        )
+    st.markdown(
+        '<div class="fa-grid">' + "".join(cards) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_header(title, description=None):
+    desc = (
+        f'<div class="fa-section-desc">{description}</div>'
+        if description else ""
+    )
+    st.markdown(
+        f"""
+        <div class="fa-section-head">
+            <div>
+                <div class="fa-section-title">{title}</div>
+                {desc}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_empty(title, text):
+    st.markdown(
+        f"""
+        <div class="fa-empty">
+            <strong>{title}</strong>
+            {text}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_player_summary(row, recommended=None):
+    role = row.get("Ruolo", "")
+    team = row.get("Squadra", "")
+    name = row.get("Nome", "")
+    price_html = ""
+    if recommended is not None:
+        price_html = f"""
+        <div class="fa-price-badge">
+            <div class="fa-price-label">Tetto consigliato</div>
+            <div class="fa-price-value">{recommended} FM</div>
+        </div>
+        """
+
+    tit = row.get("TitolaritaPct")
+    if pd.isna(tit):
+        tit = row.get("TitolaritaProxy")
+
+    st.markdown(
+        f"""
+        <div class="fa-player-card">
+            <div class="fa-player-head">
+                <div>
+                    <div class="fa-player-name">{name}</div>
+                    <div class="fa-player-meta">{team} · {ROLE_LABELS.get(role, role)}</div>
+                </div>
+                {price_html}
+            </div>
+            <div class="fa-mini-grid">
+                <div class="fa-mini">
+                    <div class="fa-mini-label">Presenze</div>
+                    <div class="fa-mini-value">{ui_fmt(row.get("PV"))}</div>
+                </div>
+                <div class="fa-mini">
+                    <div class="fa-mini-label">Titolarità</div>
+                    <div class="fa-mini-value">{ui_fmt(tit, 0, "%")}</div>
+                </div>
+                <div class="fa-mini">
+                    <div class="fa-mini-label">Gol</div>
+                    <div class="fa-mini-value">{ui_fmt(row.get("Gol"))}</div>
+                </div>
+                <div class="fa-mini">
+                    <div class="fa-mini-label">Assist</div>
+                    <div class="fa-mini-value">{ui_fmt(row.get("Assist"))}</div>
+                </div>
+                <div class="fa-mini">
+                    <div class="fa-mini-label">Media voto</div>
+                    <div class="fa-mini-value">{ui_fmt(row.get("MV"), 2)}</div>
+                </div>
+                <div class="fa-mini">
+                    <div class="fa-mini-label">Fantamedia</div>
+                    <div class="fa-mini-value">{ui_fmt(row.get("FM"), 2)}</div>
+                </div>
+                <div class="fa-mini">
+                    <div class="fa-mini-label">QA</div>
+                    <div class="fa-mini-value">{ui_fmt(row.get("Quotazione"))}</div>
+                </div>
+                <div class="fa-mini">
+                    <div class="fa-mini-label">FVM</div>
+                    <div class="fa-mini-value">{ui_fmt(row.get("FVM"))}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ------------------------------------------------------------
@@ -2475,9 +3173,9 @@ st.markdown(
       <div class="hero-row">
         <div>
           <div class="micro-label" style="color:#94a3b8;">FANTACALCIO · ASTA LIVE</div>
-          <div class="hero-title">La tua asta, sotto controllo.</div>
+          <div class="hero-title">Decidi in pochi secondi.</div>
           <div class="hero-sub">
-            Budget, rosa, rendimento e consigli aggiornati in tempo reale.
+            Chi prendere, quanto spendere e cosa manca alla tua rosa. Tutto nello stesso posto.
           </div>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
@@ -2494,8 +3192,8 @@ st.markdown(
 )
 
 with st.sidebar:
-    st.markdown("### FANTA ASTA")
-    st.caption("Assistant Pro · V8")
+    st.markdown("### FantAsta")
+    st.caption("Assistant · V10")
 
     if st.session_state.get("guest_mode"):
         st.markdown(
@@ -2521,7 +3219,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown("#### Sincronizzazione")
+    st.markdown("#### Dati live")
     st.session_state["live_sync"] = st.toggle(
         "Aggiornamento automatico",
         value=bool(st.session_state.get("live_sync", True)),
@@ -2549,7 +3247,7 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.markdown("#### Impostazioni lega")
+    st.markdown("#### Lega")
 
     budget = st.number_input(
         "Budget iniziale",
@@ -2600,7 +3298,7 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.header("📥 Listone")
+    st.markdown("#### Listone")
 
     if st.button(
         "Sincronizza listone online",
@@ -2894,6 +3592,8 @@ else:
 # TAB
 # ------------------------------------------------------------
 
+render_role_progress()
+
 tab_rosa, tab_asta, tab_consigli, tab_giocatori, tab_formazioni, tab_news = st.tabs([
     "La mia rosa",
     "Asta live",
@@ -2909,29 +3609,12 @@ tab_rosa, tab_asta, tab_consigli, tab_giocatori, tab_formazioni, tab_news = st.t
 # ------------------------------------------------------------
 
 with tab_rosa:
-    st.markdown(
-        f"""
-        <div class="roster-hero">
-          <div class="roster-panel">
-            <div class="micro-label">ROSA PERSONALE</div>
-            <div class="roster-title">{len(st.session_state["rosa"])} giocatori acquistati</div>
-            <div class="roster-desc">
-              Registra ogni acquisto: budget e priorità vengono ricalcolati e salvati automaticamente.
-            </div>
-          </div>
-          <div class="roster-panel">
-            <div class="micro-label">BUDGET DISPONIBILE</div>
-            <div class="roster-title">{budget_rimasto()} FM</div>
-            <div class="roster-desc">
-              su {st.session_state["budget_iniziale"]} FM iniziali
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_section_header(
+        "La mia rosa",
+        "Registra gli acquisti appena si chiudono: budget, slot e priorità si aggiornano e vengono salvati automaticamente.",
     )
 
-    st.subheader("Registra un acquisto")
+    st.subheader("Nuovo acquisto")
 
     if df_disponibili.empty:
         st.info(
@@ -3047,9 +3730,9 @@ with tab_rosa:
                 st.rerun()
 
     else:
-        st.info(
-            "La tua rosa è ancora vuota. "
-            "Usa il modulo qui sopra per registrare il primo acquisto."
+        render_empty(
+            "Rosa ancora vuota",
+            "Quando chiudi il primo acquisto, registralo dal modulo qui sopra.",
         )
 
     with st.expander("Reset completo asta"):
@@ -3068,7 +3751,10 @@ with tab_rosa:
 # ------------------------------------------------------------
 
 with tab_asta:
-    st.subheader("Giocatore attualmente all'asta")
+    render_section_header(
+        "Asta live",
+        "Cerca il giocatore chiamato, inserisci l'offerta corrente e guarda subito il tetto coerente con il tuo budget.",
+    )
 
     valid = df_disponibili.dropna(
         subset=["Nome", "Ruolo"]
@@ -3114,6 +3800,8 @@ with tab_asta:
                 rec,
             )
 
+            render_player_summary(row, recommended=rec)
+
             m1, m2, m3, m4 = st.columns(4)
 
             m1.metric(
@@ -3121,11 +3809,11 @@ with tab_asta:
                 role,
             )
             m2.metric(
-                "Prezzo consigliato",
+                "Tetto consigliato",
                 f"{rec} FM",
             )
             m3.metric(
-                "Massimo teorico",
+                "Massimo possibile",
                 f"{theoretical} FM",
             )
             m4.metric(
@@ -3163,46 +3851,9 @@ with tab_asta:
                 unsafe_allow_html=True,
             )
 
-            def fmt(value, digits=1):
-                if pd.isna(value):
-                    return "n.d."
-                return f"{float(value):.{digits}f}"
-
-            data_c1, data_c2, data_c3, data_c4 = st.columns(4)
-            data_c1.metric("Presenze", fmt(row["PV"], 0))
-            tit_real = row.get("TitolaritaPct")
-            tit_proxy = row.get("TitolaritaProxy")
-            if pd.notna(tit_real):
-                tit_label = "Titolarità"
-                tit_value = f"{float(tit_real):.0f}%"
-                tit_help = "Starts / partite della squadra."
-            elif pd.notna(tit_proxy):
-                tit_label = "Titolarità stimata"
-                tit_value = f"{float(tit_proxy):.0f}%"
-                tit_help = "Stima da presenze a voto Fantacalcio; non è una percentuale ufficiale di starts."
-            else:
-                tit_label = "Titolarità"
-                tit_value = "n.d."
-                tit_help = None
-
-            data_c2.metric(
-                tit_label,
-                tit_value,
-                help=tit_help,
-            )
-            data_c3.metric("Gol", fmt(row["Gol"], 0))
-            data_c4.metric("Assist", fmt(row["Assist"], 0))
-
-            data_c5, data_c6, data_c7, data_c8 = st.columns(4)
-            data_c5.metric("Media voto", fmt(row["MV"], 2))
-            data_c6.metric("Fantamedia", fmt(row["FM"], 2))
-            data_c7.metric(
-                "QA",
-                fmt(row["Quotazione"], 0),
-            )
-            data_c8.metric(
-                "FVM",
-                fmt(row.get("FVM"), 0),
+            st.markdown(
+                '<div class="fa-note">Le statistiche qui sopra entrano nel punteggio d’acquisto insieme a budget residuo, slot mancanti e priorità del reparto.</div>',
+                unsafe_allow_html=True,
             )
 
             if st.button(
@@ -3230,12 +3881,9 @@ with tab_asta:
 # ------------------------------------------------------------
 
 with tab_consigli:
-    st.subheader("⭐ Consigli acquisti: Slot 1–8, Jolly e Scommesse")
-
-    st.caption(
-        "Le fasce sono calcolate usando quotazione attuale e FVM Fantacalcio, "
-        "rendimento, bonus/titolarità disponibili e la necessità della tua rosa. "
-        "Slot 1 è la prima fascia; Slot 8 è la fascia più profonda."
+    render_section_header(
+        "Consigli acquisti",
+        "Slot 1 è la fascia premium; Slot 8 è profondità. Jolly e Scommesse cercano valore rispetto a prezzo e rendimento.",
     )
 
     advice = build_buying_advice(df_disponibili)
@@ -3289,7 +3937,10 @@ with tab_consigli:
             f"su {st.session_state['slot'][role_choice]} in questo reparto. "
             f"Priorità rosa: {squad_need_score(role_choice):.1f}/10."
         )
-        st.info(need_txt)
+        st.markdown(
+            f'<div class="fa-note">{need_txt}</div>',
+            unsafe_allow_html=True,
+        )
 
         if view.empty:
             st.info("Nessun giocatore rientra in questa categoria al momento.")
@@ -3307,22 +3958,39 @@ with tab_consigli:
                 use_container_width=True,
             )
 
-            st.markdown("**I migliori profili della fascia selezionata**")
-            for _, r in view.head(8).iterrows():
+            st.markdown("#### Profili da guardare")
+            for _, r in view.head(6).iterrows():
                 prezzo = recommended_price(r, df_disponibili)
                 tags = []
                 if bool(r.get("Jolly", False)):
                     tags.append("Jolly")
                 if bool(r.get("Scommessa", False)):
                     tags.append("Scommessa")
-                tag_txt = f" · {' / '.join(tags)}" if tags else ""
+                tag_txt = " · ".join(tags) if tags else r["Fascia"]
 
-                st.write(
-                    f"**{r['Nome']}** ({r.get('Squadra','')}) — "
-                    f"{r['Fascia']}{tag_txt} · "
-                    f"QA {int(r['Quotazione']) if pd.notna(r['Quotazione']) else 'n.d.'} · "
-                    f"FVM {int(r['FVM']) if pd.notna(r.get('FVM')) else 'n.d.'} · "
-                    f"tetto per la tua rosa ≈ **{prezzo} FM**"
+                st.markdown(
+                    f"""
+                    <div class="fa-player-card" style="padding:14px 16px;margin:7px 0;">
+                        <div class="fa-player-head">
+                            <div>
+                                <div style="font-size:17px;font-weight:800;color:#101828;">{r['Nome']}</div>
+                                <div class="fa-player-meta">{r.get('Squadra','')} · {r['Fascia']} · {tag_txt}</div>
+                            </div>
+                            <div class="fa-price-badge">
+                                <div class="fa-price-label">Tetto rosa</div>
+                                <div class="fa-price-value" style="font-size:20px;">{prezzo} FM</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:12px;color:#475467;">
+                            <span>QA <strong>{ui_fmt(r.get('Quotazione'))}</strong></span>
+                            <span>FVM <strong>{ui_fmt(r.get('FVM'))}</strong></span>
+                            <span>FM <strong>{ui_fmt(r.get('FM'),2)}</strong></span>
+                            <span>Gol <strong>{ui_fmt(r.get('Gol'))}</strong></span>
+                            <span>Assist <strong>{ui_fmt(r.get('Assist'))}</strong></span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
 
 
@@ -3331,7 +3999,21 @@ with tab_consigli:
 # ------------------------------------------------------------
 
 with tab_giocatori:
-    st.subheader("Listone e classifica guidata")
+    render_section_header(
+        "Giocatori",
+        "Esplora il listone completo e ordina i profili in base al rendimento e alla priorità della tua rosa.",
+    )
+
+    stats_ok = (
+        int(pd.to_numeric(df.get("PV"), errors="coerce").notna().sum())
+        if not df.empty else 0
+    )
+    st.markdown(
+        f'<div class="fa-note"><strong>Copertura statistiche:</strong> '
+        f'{stats_ok}/{len(df)} giocatori con dati stagione. '
+        f'Se il numero è basso, apri “Stato fonti online” in fondo.</div>',
+        unsafe_allow_html=True,
+    )
 
     if df_disponibili.empty:
         st.info("Nessun giocatore disponibile.")
@@ -3384,11 +4066,9 @@ with tab_giocatori:
 # ------------------------------------------------------------
 
 with tab_formazioni:
-    st.subheader("Formazioni base Serie A 2026/27")
-    st.caption(
-        "Fonte Fantacalcio.it. Sono le formazioni stagionali di riferimento "
-        "per l'asta: modulo, undici base, ballottaggi, rigoristi e piazzati. "
-        "Per la giornata corrente usa invece la sezione Probabili Formazioni live."
+    render_section_header(
+        "Formazioni 2026/27",
+        "Undici base, modulo, ballottaggi, rigoristi e piazzati delle squadre di Serie A.",
     )
 
     try:
@@ -3410,10 +4090,28 @@ with tab_formazioni:
             formations_df["Squadra"] == team
         ].iloc[0]
 
-        h1, h2, h3 = st.columns([1.4, .8, .8])
-        h1.metric("Squadra", team)
-        h2.metric("Modulo", r["Modulo"] or "n.d.")
-        h3.metric("Allenatore", r["Allenatore"] or "n.d.")
+        st.caption(
+            f"Fonte: {r.get('Fonte', 'Fantacalcio')} · "
+            f"{len(formations_df)} squadre lette"
+        )
+
+        st.markdown(
+            f"""
+            <div class="fa-player-card">
+                <div class="fa-player-head">
+                    <div>
+                        <div class="fa-player-name">{team}</div>
+                        <div class="fa-player-meta">Allenatore · {r["Allenatore"] or "n.d."}</div>
+                    </div>
+                    <div class="fa-price-badge">
+                        <div class="fa-price-label">Modulo base</div>
+                        <div class="fa-price-value">{r["Modulo"] or "n.d."}</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         st.markdown("#### Undici base")
         xi = split_starting_xi(r["Formazione"])
@@ -3462,7 +4160,10 @@ with tab_formazioni:
 # ------------------------------------------------------------
 
 with tab_news:
-    st.subheader("News e contesto del giocatore")
+    render_section_header(
+        "News giocatore",
+        "Controlla rapidamente segnali su titolarità, recuperi, infortuni e gerarchie prima di rilanciare.",
+    )
 
     if df.empty:
         st.info("Carica prima il listone.")
