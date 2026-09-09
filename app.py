@@ -270,7 +270,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Design system V9
+# Design system V11
 st.markdown(
     """
     <style>
@@ -2269,6 +2269,155 @@ def merge_fbref_starts(dataframe, fb):
     )
 
 
+
+def parse_matchday_formations_markdown(md):
+    """Estrae squadre, moduli, XI e percentuali dalla pagina Probabili Formazioni."""
+    team_names = [
+        "Atalanta", "Bologna", "Cagliari", "Como", "Fiorentina",
+        "Frosinone", "Genoa", "Inter", "Juventus", "Lazio",
+        "Lecce", "Milan", "Monza", "Napoli", "Parma", "Roma",
+        "Sassuolo", "Torino", "Udinese", "Venezia",
+    ]
+
+    headings = []
+    for team in team_names:
+        m = re.search(rf"(?im)^###\s+{re.escape(team)}\s*$", md)
+        if m:
+            headings.append((m.start(), m.end(), team))
+    headings.sort()
+
+    teams_rows = []
+    player_rows = []
+
+    for idx, (start, content_start, team) in enumerate(headings):
+        end = headings[idx + 1][0] if idx + 1 < len(headings) else len(md)
+        block = md[content_start:end]
+
+        cut = re.search(r"(?im)^###\s+Presentazione squadre\s*$", block)
+        if cut:
+            block = block[:cut.start()]
+
+        module = ""
+        mm = re.search(r"(?m)^\s*([1-5]-[1-5](?:-[1-5]){1,3})\s*$", block)
+        if mm:
+            module = mm.group(1)
+
+        bench_match = re.search(r"(?im)^\s*Panchina\s*$", block)
+        starters_block = block[:bench_match.start()] if bench_match else block
+        bench_block = block[bench_match.end():] if bench_match else ""
+
+        def extract_players(text, starter):
+            found = []
+            pattern = re.compile(
+                r"(?:\*\s*)?(?:\[[^\]]*\]\s*)?\[([^\]]+)\]\([^)]+\)\s*\n+\s*(\d{1,3})%",
+                re.M,
+            )
+            for pm in pattern.finditer(text):
+                name = clean_name(pm.group(1))
+                pct = int(pm.group(2))
+                if name and 0 <= pct <= 100:
+                    found.append((name, pct, starter))
+            return found
+
+        starters = extract_players(starters_block, True)
+        bench = extract_players(bench_block, False)
+        xi = starters[:11]
+
+        teams_rows.append({
+            "Squadra": team,
+            "Allenatore": "",
+            "Modulo": module,
+            "Formazione": ", ".join(name for name, _, _ in xi),
+            "Ballottaggi": "",
+            "Rigoristi": "",
+            "Piazzati": "",
+            "Fonte": "Fantacalcio · Probabili formazioni live",
+        })
+
+        for name, pct, starter in starters + bench:
+            player_rows.append({
+                "Nome": name,
+                "Squadra_Formazione": team,
+                "TitolaritaPct": pct,
+                "ProbabileXI": bool(starter),
+            })
+
+    teams = pd.DataFrame(teams_rows)
+    players = pd.DataFrame(player_rows)
+
+    if teams.empty or len(teams) < 10:
+        raise ValueError(f"formazioni live incomplete: {len(teams)} squadre")
+
+    if not players.empty:
+        players["_key"] = players["Nome"].map(key_name)
+        players = (
+            players.sort_values(["ProbabileXI", "TitolaritaPct"], ascending=False)
+            .drop_duplicates("_key", keep="first")
+            .reset_index(drop=True)
+        )
+
+    return teams, players
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_matchday_formations():
+    errors = []
+
+    try:
+        md = reader_markdown(FANTACALCIO_MATCHDAY_FORMATIONS_URL)
+        teams, players = parse_matchday_formations_markdown(md)
+        teams.attrs["source"] = "Fantacalcio live via Reader"
+        players.attrs["source"] = "Fantacalcio live via Reader"
+        return teams, players
+    except Exception as e:
+        errors.append(f"reader: {e}")
+
+    try:
+        r = requests.get(
+            FANTACALCIO_MATCHDAY_FORMATIONS_URL,
+            headers=HEADERS,
+            timeout=20,
+        )
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        chunks = []
+        for node in soup.find_all(["h2", "h3", "h4", "li", "div", "span"]):
+            txt = clean_name(node.get_text(" ", strip=True))
+            if not txt:
+                continue
+            if node.name == "h3":
+                chunks.append(f"### {txt}")
+            else:
+                chunks.append(txt)
+
+        pseudo = "\n".join(chunks)
+        teams, players = parse_matchday_formations_markdown(pseudo)
+        teams.attrs["source"] = "Fantacalcio live HTML"
+        players.attrs["source"] = "Fantacalcio live HTML"
+        return teams, players
+    except Exception as e:
+        errors.append(f"html: {e}")
+
+    raise ValueError(" | ".join(errors))
+
+
+def merge_matchday_probabilities(dataframe, player_prob):
+    out = dataframe.copy()
+
+    for c in ["TitolaritaPct", "ProbabileXI"]:
+        if c in out.columns:
+            out = out.drop(columns=[c])
+
+    if player_prob is None or player_prob.empty:
+        out["TitolaritaPct"] = np.nan
+        out["ProbabileXI"] = np.nan
+        return out
+
+    keep = ["_key", "TitolaritaPct", "ProbabileXI"]
+    return out.merge(player_prob[keep], on="_key", how="left")
+
+
 @st.cache_data(ttl=45, show_spinner=False)
 def fetch_fantacalcio_stats():
     errors = []
@@ -2276,6 +2425,8 @@ def fetch_fantacalcio_stats():
     try:
         md = reader_markdown(FANTACALCIO_STATS_URL)
         out = parse_stats_markdown(md)
+        if len(out) < 100:
+            raise ValueError(f"copertura insufficiente: {len(out)} giocatori")
         out.attrs["source"] = "Fantacalcio via Reader"
         return out
     except Exception as e:
@@ -2357,8 +2508,8 @@ def fetch_fantacalcio_stats():
         out["_key"] = out["Nome"].map(key_name)
         out = out.drop_duplicates("_key").reset_index(drop=True)
 
-        if out.empty:
-            raise ValueError("tabella HTML vuota")
+        if len(out) < 100:
+            raise ValueError(f"tabella HTML incompleta: {len(out)} giocatori")
 
         out.attrs["source"] = "Fantacalcio HTML"
         return out
@@ -2403,7 +2554,7 @@ def compute_scores(df):
     out["TitolaritaProxy"] = tit_real.combine_first(pv_proxy).clip(0, 100)
     out["TitolaritaFonte"] = np.where(
         tit_real.notna(),
-        "Starts",
+        "Prob. Fantacalcio giornata",
         "Stima da presenze",
     )
 
@@ -2430,6 +2581,19 @@ def merge_listone_stats(listone, stats):
         for c in ["PV", "MV", "FM", "Gol", "Assist", "Amm", "Esp"]:
             base[c] = np.nan
 
+    fallback_map = {
+        "PV": "PV_GAZ",
+        "MV": "MV_GAZ",
+        "FM": "FM_GAZ",
+        "Gol": "Gol_GAZ",
+        "Assist": "Assist_GAZ",
+    }
+    for target, source in fallback_map.items():
+        if source in base.columns:
+            base[target] = pd.to_numeric(base[target], errors="coerce").combine_first(
+                pd.to_numeric(base[source], errors="coerce")
+            )
+
     return compute_scores(base)
 
 
@@ -2439,7 +2603,7 @@ def load_online_data():
     listone = None
     stats = None
     quotes = None
-    fb_starts = None
+    formation_players = None
 
     try:
         listone = fetch_gazzetta_listone()
@@ -2461,24 +2625,28 @@ def load_online_data():
             f"OK ({len(stats)}) · {stats.attrs.get('source', 'Fantacalcio')}"
         )
     except Exception as e:
-        status["Fantacalcio statistiche"] = f"KO: {e}"
+        status["Fantacalcio statistiche"] = (
+            f"Fallback listone · pagina stats non disponibile ({e})"
+        )
 
     try:
-        fb_starts = fetch_fbref_starts()
-        status["FBref titolarità"] = f"OK ({len(fb_starts)})"
+        formation_teams, formation_players = fetch_matchday_formations()
+        status["Fantacalcio formazioni"] = (
+            f"OK ({len(formation_teams)} squadre / {len(formation_players)} giocatori) · "
+            f"{formation_teams.attrs.get('source', 'Fantacalcio')}"
+        )
     except Exception as e:
-        status["FBref titolarità"] = f"KO: {e}"
+        status["Fantacalcio formazioni"] = f"KO: {e}"
 
     if listone is None or listone.empty:
         raise RuntimeError(
             "Non sono riuscito a costruire automaticamente il listone con i ruoli. "
-            "Carica il listone ufficiale Classic: l'app lo aggiornerà poi "
-            "automaticamente con QA, FVM e statistiche."
+            "Carica il listone ufficiale Classic."
         )
 
     listone = merge_live_quotes(listone, quotes)
     data = merge_listone_stats(listone, stats)
-    data = merge_fbref_starts(data, fb_starts)
+    data = merge_matchday_probabilities(data, formation_players)
     data = compute_scores(data)
 
     return data, stats, status
@@ -2877,34 +3045,18 @@ def build_buying_advice(available_df):
 # FORMAZIONI STAGIONALI 2026/27
 # ------------------------------------------------------------
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_season_formations():
-    errors = []
-    text = None
-    source = None
-
+    """Prima usa le probabili formazioni live; fallback alla guida stagionale."""
     try:
-        text = reader_markdown(FANTACALCIO_SEASON_FORMATIONS_URL)
-        source = "Fantacalcio via Reader"
-    except Exception as e:
-        errors.append(f"reader: {e}")
+        teams, _ = fetch_matchday_formations()
+        if not teams.empty:
+            return teams
+    except Exception:
+        pass
 
-    if not text:
-        try:
-            r = requests.get(
-                FANTACALCIO_SEASON_FORMATIONS_URL,
-                headers=HEADERS,
-                timeout=20,
-            )
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "html.parser")
-            text = soup.get_text("\n", strip=True)
-            source = "Fantacalcio AMP"
-        except Exception as e:
-            errors.append(f"html: {e}")
-
-    if not text:
-        raise ValueError(" | ".join(errors))
+    text = reader_markdown(FANTACALCIO_SEASON_FORMATIONS_URL)
+    source = "Fantacalcio guida stagionale"
 
     team_names = [
         "ATALANTA", "BOLOGNA", "CAGLIARI", "COMO", "FIORENTINA",
@@ -2917,16 +3069,8 @@ def fetch_season_formations():
     positions = []
 
     for team in team_names:
-        matches = []
-        for p in [
-            rf"(?m)^##\s+{re.escape(team)}\s*$",
-            rf"(?m)^\s*{re.escape(team)}\s*$",
-        ]:
-            m = re.search(p, normalized, flags=re.I)
-            if m:
-                matches.append(m)
-        if matches:
-            m = min(matches, key=lambda x: x.start())
+        m = re.search(rf"(?im)^##\s+{re.escape(team)}\s*$", normalized)
+        if m:
             positions.append((m.start(), team, m.end()))
 
     positions.sort()
@@ -2943,44 +3087,29 @@ def fetch_season_formations():
             )
             return re.sub(r"\s+", " ", m.group(1)).strip(" .") if m else ""
 
-        allenatore = one_line("Allenatore")
-        modulo = one_line("Modulo")
-        ballottaggi = one_line("Ballottaggi")
-        rigoristi = one_line("Rigoristi")
-        piazzati = one_line("Calci da fermo")
-
         fm = re.search(
             r"(?is)Probabile formazione[^\n:]*\s*:\s*(.*?)"
             r"(?=\n\s*Ballottaggi\s*:|\n\s*Rigoristi\s*:|\n\s*Calci da fermo\s*:|\n##\s|\Z)",
             block,
         )
-        formazione = (
-            re.sub(r"\s+", " ", fm.group(1)).strip(" .")
-            if fm else ""
-        )
 
         rows.append({
             "Squadra": team.title(),
-            "Allenatore": allenatore,
-            "Modulo": modulo,
-            "Formazione": formazione,
-            "Ballottaggi": ballottaggi,
-            "Rigoristi": rigoristi,
-            "Piazzati": piazzati,
+            "Allenatore": one_line("Allenatore"),
+            "Modulo": one_line("Modulo"),
+            "Formazione": (
+                re.sub(r"\s+", " ", fm.group(1)).strip(" .")
+                if fm else ""
+            ),
+            "Ballottaggi": one_line("Ballottaggi"),
+            "Rigoristi": one_line("Rigoristi"),
+            "Piazzati": one_line("Calci da fermo"),
             "Fonte": source,
         })
 
     out = pd.DataFrame(rows)
-
-    valid_xi = (
-        (out["Formazione"].astype(str).str.len() >= 10).sum()
-        if not out.empty else 0
-    )
-    if out.empty or valid_xi < 15:
-        raise ValueError(
-            f"formazioni incomplete: {valid_xi}/{len(out)} con XI valido"
-        )
-
+    if out.empty:
+        raise ValueError("formazioni non riconosciute")
     return out
 
 
@@ -3049,10 +3178,7 @@ def render_role_progress():
             </div>
             """
         )
-    st.markdown(
-        '<div class="fa-grid">' + "".join(cards) + "</div>",
-        unsafe_allow_html=True,
-    )
+    st.html('<div class="fa-grid">' + "".join(cards) + "</div>")
 
 
 def render_section_header(title, description=None):
@@ -3380,15 +3506,15 @@ with st.sidebar:
                 data = merge_listone_stats(parsed, stats)
 
                 try:
-                    fb_starts = fetch_fbref_starts()
-                    data = merge_fbref_starts(data, fb_starts)
+                    _, formation_players = fetch_matchday_formations()
+                    data = merge_matchday_probabilities(data, formation_players)
                     data = compute_scores(data)
                     st.session_state["source_status"][
-                        "FBref titolarità"
-                    ] = f"OK ({len(fb_starts)})"
+                        "Fantacalcio formazioni"
+                    ] = f"OK ({len(formation_players)} giocatori)"
                 except Exception as e:
                     st.session_state["source_status"][
-                        "FBref titolarità"
+                        "Fantacalcio formazioni"
                     ] = f"KO: {e}"
 
                 st.session_state["giocatori"] = data
@@ -3463,16 +3589,22 @@ def refresh_current_dataset():
             base = base.drop(columns=[c for c in live_cols if c in base.columns])
 
             quotes = fetch_fantacalcio_quotes()
-            stats = fetch_fantacalcio_stats()
-            fb_starts = fetch_fbref_starts()
+            try:
+                stats = fetch_fantacalcio_stats()
+            except Exception:
+                stats = None
+            _, formation_players = fetch_matchday_formations()
             base = merge_live_quotes(base, quotes)
             data = merge_listone_stats(base, stats)
-            data = merge_fbref_starts(data, fb_starts)
+            data = merge_matchday_probabilities(data, formation_players)
             data = compute_scores(data)
             status = {
                 "Fantacalcio quotazioni/FVM": f"OK ({len(quotes)})",
-                "Fantacalcio statistiche": f"OK ({len(stats)})",
-                "FBref titolarità": f"OK ({len(fb_starts)})",
+                "Fantacalcio statistiche": (
+                    f"OK ({len(stats)})" if stats is not None
+                    else "Fallback statistiche listone"
+                ),
+                "Fantacalcio formazioni": f"OK ({len(formation_players)} giocatori)",
             }
 
         st.session_state["giocatori"] = data
@@ -3566,7 +3698,7 @@ c4.metric(
 if not df.empty:
     fc_q = st.session_state["source_status"].get("Fantacalcio quotazioni/FVM", "—")
     fc_s = st.session_state["source_status"].get("Fantacalcio statistiche", "—")
-    fb_s = st.session_state["source_status"].get("FBref titolarità", "—")
+    fb_s = st.session_state["source_status"].get("Fantacalcio formazioni", "—")
     st.markdown(
         f"""
         <div class="source-strip">
@@ -3574,7 +3706,7 @@ if not df.empty:
           <span class="source-pill">Listone: <strong>{st.session_state['listone_source']}</strong></span>
           <span class="source-pill">QA/FVM: <strong>{fc_q}</strong></span>
           <span class="source-pill">Stats: <strong>{fc_s}</strong></span>
-          <span class="source-pill">Titolarità: <strong>{fb_s}</strong></span>
+          <span class="source-pill">Formazioni: <strong>{fb_s}</strong></span>
           <span class="source-pill">Sync: <strong>{st.session_state['last_update'] or '—'}</strong></span>
         </div>
         """,
