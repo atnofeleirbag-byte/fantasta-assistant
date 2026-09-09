@@ -2,6 +2,7 @@
 import io
 import re
 import urllib.parse
+import time
 from datetime import datetime
 
 import numpy as np
@@ -9,9 +10,10 @@ import pandas as pd
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(
-    page_title="FantAsta Assistant Pro V3",
+    page_title="FantAsta Assistant Pro V5",
     page_icon="⚡",
     layout="wide",
 )
@@ -51,11 +53,203 @@ STAT_COLS = [
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.2rem; padding-bottom: 3rem;}
+    :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --ink: #111827;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --brand: #111827;
+        --accent: #22c55e;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --soft: #eef2f7;
+    }
+
+    .stApp {
+        background: var(--bg);
+        color: var(--ink);
+    }
+
+    .block-container {
+        max-width: 1480px;
+        padding-top: 1rem;
+        padding-bottom: 4rem;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid var(--line);
+    }
+
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 1.2rem;
+    }
+
+    h1, h2, h3 {
+        letter-spacing: -0.025em;
+    }
+
+    .app-hero {
+        background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+        color: white;
+        border-radius: 22px;
+        padding: 24px 28px;
+        margin-bottom: 18px;
+        box-shadow: 0 10px 30px rgba(17,24,39,.10);
+    }
+
+    .hero-row {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:20px;
+    }
+
+    .hero-title {
+        font-size: 28px;
+        line-height: 1.1;
+        font-weight: 760;
+        letter-spacing: -0.035em;
+        margin: 0;
+    }
+
+    .hero-sub {
+        color: #cbd5e1;
+        font-size: 14px;
+        margin-top: 8px;
+    }
+
+    .live-badge {
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(255,255,255,.08);
+        padding:8px 12px;
+        border-radius:999px;
+        font-size:12px;
+        white-space:nowrap;
+    }
+
+    .live-dot {
+        width:8px;
+        height:8px;
+        border-radius:999px;
+        background:#22c55e;
+        box-shadow:0 0 0 5px rgba(34,197,94,.12);
+    }
+
     div[data-testid="stMetric"] {
-        border: 1px solid rgba(128,128,128,.20);
-        padding: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        padding: 16px 17px;
+        border-radius: 16px;
+        box-shadow: 0 4px 14px rgba(17,24,39,.035);
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: var(--muted);
+    }
+
+    div[data-testid="stMetricValue"] {
+        letter-spacing: -0.03em;
+    }
+
+    .section-card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px 20px;
+        margin: 10px 0 16px;
+        box-shadow: 0 5px 18px rgba(17,24,39,.035);
+    }
+
+    .micro-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+        color: var(--muted);
+        font-weight: 700;
+    }
+
+    .source-strip {
+        display:flex;
+        gap:10px;
+        flex-wrap:wrap;
+        align-items:center;
+        margin:8px 0 18px;
+    }
+
+    .source-pill {
+        padding:7px 10px;
+        border-radius:999px;
+        background:white;
+        border:1px solid var(--line);
+        color:#374151;
+        font-size:12px;
+    }
+
+    .source-pill strong {
+        color:#111827;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border:1px solid var(--line);
+        border-radius:14px;
+        overflow:hidden;
+        background:white;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 7px;
+        background: transparent;
+        border-bottom: 0;
+        flex-wrap: wrap;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 42px;
         border-radius: 12px;
+        padding: 0 15px;
+        background: white;
+        border: 1px solid var(--line);
+        color: #4b5563;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: #111827 !important;
+        color: white !important;
+        border-color: #111827 !important;
+    }
+
+    .stButton > button, .stFormSubmitButton > button {
+        border-radius: 12px;
+        min-height: 42px;
+        font-weight: 650;
+    }
+
+    .stTextInput input,
+    .stNumberInput input,
+    div[data-baseweb="select"] > div {
+        border-radius: 11px !important;
+    }
+
+    .decision {
+        border-radius:16px;
+        padding:15px 17px;
+        margin:12px 0;
+        font-weight:700;
+        border:1px solid;
+    }
+    .decision.good {background:#ecfdf3; border-color:#bbf7d0; color:#166534;}
+    .decision.ok {background:#fffbeb; border-color:#fde68a; color:#92400e;}
+    .decision.bad {background:#fef2f2; border-color:#fecaca; color:#991b1b;}
+
+    @media (max-width: 700px) {
+        .app-hero {padding:20px;}
+        .hero-row {align-items:flex-start; flex-direction:column;}
+        .hero-title {font-size:24px;}
     }
     </style>
     """,
@@ -81,6 +275,8 @@ def init_state():
         "last_update": None,
         "listone_source": "Nessuno",
         "uploaded_signature": None,
+        "live_sync": True,
+        "last_sync_epoch": 0,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -314,9 +510,22 @@ def read_uploaded_listone(uploaded_file):
 # FONTI ONLINE
 # ------------------------------------------------------------
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def read_html_tables(url):
-    response = requests.get(url, headers=HEADERS, timeout=20)
+@st.cache_data(ttl=45, show_spinner=False)
+def read_html_tables(url, cache_bucket=None):
+    # cache_bucket cambia ogni minuto e impedisce a CDN/browser di restituire
+    # una copia vecchia della pagina Fantacalcio.
+    bucket = cache_bucket if cache_bucket is not None else int(time.time() // 60)
+    separator = "&" if "?" in url else "?"
+    fresh_url = f"{url}{separator}_fantasta_refresh={bucket}"
+    response = requests.get(
+        fresh_url,
+        headers={
+            **HEADERS,
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+        timeout=20,
+    )
     response.raise_for_status()
     return pd.read_html(io.StringIO(response.text))
 
@@ -337,7 +546,7 @@ def pick_col(df, candidates):
     return None
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=45, show_spinner=False)
 def fetch_gazzetta_listone():
     tables = read_html_tables(GAZZETTA_LIST_URL)
 
@@ -402,7 +611,7 @@ def fetch_gazzetta_listone():
 
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=45, show_spinner=False)
 def fetch_fantacalcio_quotes():
     """
     Recupera dalla pagina Quotazioni Fantacalcio.it i valori Classic correnti:
@@ -520,7 +729,7 @@ def merge_live_quotes(dataframe, quotes):
     return out
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=45, show_spinner=False)
 def fetch_fantacalcio_stats():
     tables = read_html_tables(FANTACALCIO_STATS_URL)
 
@@ -657,7 +866,7 @@ def load_online_data():
     return data, stats, status
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_sos_news(player_name, max_items=6):
     q = urllib.parse.quote(player_name)
     url = SOS_SEARCH_URL.format(query=q)
@@ -1048,14 +1257,54 @@ def build_buying_advice(available_df):
 # SIDEBAR
 # ------------------------------------------------------------
 
-st.title("⚡ FantAsta Assistant Pro V3")
-st.caption(
-    "La tua rosa e il tuo budget al centro. "
-    "Statistiche online + valutazione dinamica dell'acquisto."
+live_text = (
+    st.session_state.get("last_update")
+    or "sincronizzazione iniziale"
+)
+
+st.markdown(
+    f"""
+    <div class="app-hero">
+      <div class="hero-row">
+        <div>
+          <div class="micro-label" style="color:#94a3b8;">FANTACALCIO · ASTA</div>
+          <div class="hero-title">FantAsta Assistant</div>
+          <div class="hero-sub">Rosa, budget e decisioni d'acquisto in un'unica dashboard.</div>
+        </div>
+        <div class="live-badge">
+          <span class="live-dot"></span>
+          Fantacalcio LIVE · {live_text}
+        </div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 with st.sidebar:
-    st.header("⚙️ Impostazioni lega")
+    st.markdown("### FANTA ASTA")
+    st.caption("Assistant Pro · V5")
+
+    st.markdown("#### Sincronizzazione")
+    st.session_state["live_sync"] = st.toggle(
+        "Aggiornamento automatico",
+        value=bool(st.session_state.get("live_sync", True)),
+        help="Ricarica quotazioni e statistiche Fantacalcio circa ogni 60 secondi.",
+    )
+
+    if st.session_state["live_sync"]:
+        st_autorefresh(interval=60_000, key="fantasta_live_refresh")
+        st.caption("● LIVE · refresh ~60 sec")
+    else:
+        st.caption("○ Aggiornamento automatico disattivato")
+
+    if st.button("↻ Aggiorna ora", use_container_width=True):
+        st.cache_data.clear()
+        st.session_state["last_sync_epoch"] = 0
+        st.rerun()
+
+    st.divider()
+    st.markdown("#### Impostazioni lega")
 
     budget = st.number_input(
         "Budget iniziale",
@@ -1108,7 +1357,7 @@ with st.sidebar:
     st.header("📥 Listone")
 
     if st.button(
-        "🌐 Carica / aggiorna automaticamente",
+        "Sincronizza listone online",
         use_container_width=True,
         type="primary",
     ):
@@ -1226,6 +1475,55 @@ with st.sidebar:
         st.warning("Nessun listone attivo.")
 
 
+
+def refresh_current_dataset():
+    """
+    Aggiorna ogni minuto QA/FVM/statistiche Fantacalcio.
+    Se il listone è online ricostruisce anche ruoli/squadre dalla fonte base.
+    Se il listone è stato caricato dall'utente conserva i ruoli del file.
+    """
+    now = int(time.time())
+    if now - int(st.session_state.get("last_sync_epoch", 0)) < 50:
+        return
+
+    try:
+        if st.session_state.get("listone_source") == "Online":
+            data, stats, status = load_online_data()
+        else:
+            current = st.session_state.get("giocatori")
+            if current is None or current.empty:
+                return
+
+            base = current.copy()
+
+            # Elimina i campi live esistenti prima del nuovo merge.
+            live_cols = [
+                "QI_FC", "QA_FC", "FVM", "Squadra_FC",
+                "PV", "MV", "FM", "Gol", "Assist", "Amm", "Esp",
+                "BonusScore", "TitolaritaProxy", "FormaScore",
+                "BonusIndex", "RendimentoScore",
+            ]
+            base = base.drop(columns=[c for c in live_cols if c in base.columns])
+
+            quotes = fetch_fantacalcio_quotes()
+            stats = fetch_fantacalcio_stats()
+            base = merge_live_quotes(base, quotes)
+            data = merge_listone_stats(base, stats)
+            status = {
+                "Fantacalcio quotazioni/FVM": f"OK ({len(quotes)})",
+                "Fantacalcio statistiche": f"OK ({len(stats)})",
+            }
+
+        st.session_state["giocatori"] = data
+        st.session_state["online_stats"] = stats
+        st.session_state["source_status"].update(status)
+        st.session_state["last_update"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        st.session_state["last_sync_epoch"] = now
+
+    except Exception as e:
+        st.session_state["source_status"]["Sincronizzazione LIVE"] = f"KO: {e}"
+
+
 # ------------------------------------------------------------
 # CARICAMENTO INIZIALE ONLINE
 # ------------------------------------------------------------
@@ -1250,6 +1548,9 @@ if st.session_state["giocatori"] is None:
             ]
         )
 
+
+if st.session_state.get("live_sync", True):
+    refresh_current_dataset()
 
 df = st.session_state["giocatori"].copy()
 
@@ -1278,28 +1579,43 @@ slots_left = sum(slot_liberi(r) for r in "PDCA")
 
 c1, c2, c3, c4 = st.columns(4)
 
+budget_pct = (
+    (b_left / st.session_state["budget_iniziale"]) * 100
+    if st.session_state["budget_iniziale"] else 0
+)
+
 c1.metric(
-    "Budget residuo",
+    "Budget disponibile",
     f"{b_left} FM",
+    f"{budget_pct:.0f}% residuo",
 )
 c2.metric(
-    "Budget speso",
+    "Spesa effettuata",
     f"{st.session_state['speso']} FM",
 )
 c3.metric(
-    "Giocatori in rosa",
-    f"{len(st.session_state['rosa'])}",
+    "Rosa",
+    f"{len(st.session_state['rosa'])}/{sum(st.session_state['slot'].values())}",
 )
 c4.metric(
-    "Slot ancora liberi",
+    "Slot da completare",
     f"{slots_left}",
 )
 
 if not df.empty:
-    st.caption(
-        f"Listone: {len(df)} giocatori · "
-        f"Fonte: {st.session_state['listone_source']} · "
-        f"Aggiornato: {st.session_state['last_update'] or '-'}"
+    fc_q = st.session_state["source_status"].get("Fantacalcio quotazioni/FVM", "—")
+    fc_s = st.session_state["source_status"].get("Fantacalcio statistiche", "—")
+    st.markdown(
+        f"""
+        <div class="source-strip">
+          <span class="source-pill"><strong>{len(df)}</strong> giocatori</span>
+          <span class="source-pill">Listone: <strong>{st.session_state['listone_source']}</strong></span>
+          <span class="source-pill">QA/FVM: <strong>{fc_q}</strong></span>
+          <span class="source-pill">Stats: <strong>{fc_s}</strong></span>
+          <span class="source-pill">Sync: <strong>{st.session_state['last_update'] or '—'}</strong></span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 else:
     st.error(
@@ -1314,11 +1630,11 @@ else:
 # ------------------------------------------------------------
 
 tab_rosa, tab_asta, tab_consigli, tab_giocatori, tab_news = st.tabs([
-    "📋 LA MIA ROSA",
-    "🎯 ASSISTENTE ASTA",
-    "⭐ CONSIGLI ACQUISTI",
-    "📊 GIOCATORI",
-    "📰 NEWS",
+    "La mia rosa",
+    "Asta live",
+    "Consigli",
+    "Giocatori",
+    "News",
 ])
 
 
@@ -1527,31 +1843,35 @@ with tab_asta:
                 f"{squad_need_score(role):.1f}/10",
             )
 
-            if result == "AFFARE":
-                st.success(
-                    f"🟢 AFFARE — a {current_bid} FM "
-                    "sei molto sotto il prezzo obiettivo."
-                )
-            elif result == "OTTIMO":
-                st.success(
-                    f"🟢 OTTIMO — a {current_bid} FM "
-                    "l'acquisto è conveniente."
+            if result in {"AFFARE", "OTTIMO"}:
+                klass = "good"
+                detail = (
+                    "Prezzo interessante per la tua situazione attuale."
+                    if result == "OTTIMO"
+                    else "Sei nettamente sotto il tetto calcolato."
                 )
             elif result == "OK":
-                st.info(
-                    f"🟡 OK — sei vicino al limite consigliato "
-                    f"di {rec} FM."
-                )
-            elif result == "CARO":
-                st.warning(
-                    f"🟠 CARO — sei oltre il prezzo consigliato "
-                    f"di {rec} FM."
-                )
+                klass = "ok"
+                detail = "Sei vicino al limite: puoi chiudere, ma senza inseguire."
             else:
-                st.error(
-                    f"🔴 STOP — per la tua rosa attuale "
-                    f"io lo lascerei andare oltre {rec} FM."
+                klass = "bad"
+                detail = (
+                    "Stai pagando oltre il valore consigliato."
+                    if result == "CARO"
+                    else "Per budget e composizione rosa conviene fermarsi."
                 )
+
+            st.markdown(
+                f"""
+                <div class="decision {klass}">
+                    {result} · {current_bid} FM
+                    <div style="font-weight:500; font-size:13px; margin-top:4px;">
+                        {detail}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             data_c1, data_c2, data_c3, data_c4, data_c5 = st.columns(5)
 
