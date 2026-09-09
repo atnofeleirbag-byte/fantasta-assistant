@@ -3,6 +3,8 @@ import io
 import re
 import urllib.parse
 import time
+import json
+import hashlib
 from datetime import datetime
 
 import numpy as np
@@ -10,9 +12,10 @@ import pandas as pd
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
+from supabase import create_client
 
 st.set_page_config(
-    page_title="FantAsta Assistant Pro V6",
+    page_title="FantAsta Assistant",
     page_icon="⚡",
     layout="wide",
 )
@@ -288,6 +291,567 @@ def init_state():
 
 
 init_state()
+
+# ------------------------------------------------------------
+# ACCOUNT + SALVATAGGIO CLOUD
+# ------------------------------------------------------------
+
+def supabase_configured():
+    try:
+        return bool(
+            st.secrets.get("SUPABASE_URL")
+            and st.secrets.get("SUPABASE_KEY")
+        )
+    except Exception:
+        return False
+
+
+def new_supabase_client():
+    return create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"],
+    )
+
+
+def restore_authenticated_client():
+    access = st.session_state.get("auth_access_token")
+    refresh = st.session_state.get("auth_refresh_token")
+    if not access or not refresh or not supabase_configured():
+        return None
+
+    try:
+        client = new_supabase_client()
+        response = client.auth.set_session(access, refresh)
+
+        # Se il token è stato aggiornato, conserva la nuova coppia.
+        session = getattr(response, "session", None)
+        if session:
+            st.session_state["auth_access_token"] = session.access_token
+            st.session_state["auth_refresh_token"] = session.refresh_token
+
+        return client
+    except Exception:
+        for k in [
+            "auth_access_token", "auth_refresh_token",
+            "auth_user_id", "auth_email",
+        ]:
+            st.session_state.pop(k, None)
+        return None
+
+
+def compact_listone_for_save():
+    source = str(st.session_state.get("listone_source", ""))
+    df_state = st.session_state.get("giocatori")
+
+    if not source.startswith("File:") or df_state is None or df_state.empty:
+        return None
+
+    cols = [
+        c for c in
+        ["Nome", "Ruolo", "Squadra", "Quotazione"]
+        if c in df_state.columns
+    ]
+    if not cols:
+        return None
+
+    safe = df_state[cols].copy()
+    safe = safe.where(pd.notna(safe), None)
+    return safe.to_dict(orient="records")
+
+
+def user_state_payload():
+    return {
+        "budget_iniziale": int(st.session_state.get("budget_iniziale", 500)),
+        "num_partecipanti": int(st.session_state.get("num_partecipanti", 10)),
+        "slot": {
+            k: int(v)
+            for k, v in st.session_state.get("slot", DEFAULT_SLOTS).items()
+        },
+        "perc_reparto": {
+            k: float(v)
+            for k, v in st.session_state.get("perc_reparto", DEFAULT_PERC).items()
+        },
+        "rosa": [
+            {
+                "Nome": str(x["Nome"]),
+                "Ruolo": str(x["Ruolo"]),
+                "Prezzo": int(x["Prezzo"]),
+            }
+            for x in st.session_state.get("rosa", [])
+        ],
+        "speso": int(st.session_state.get("speso", 0)),
+        "custom_listone": compact_listone_for_save(),
+        "listone_source": (
+            st.session_state.get("listone_source")
+            if str(st.session_state.get("listone_source", "")).startswith("File:")
+            else "Online"
+        ),
+    }
+
+
+def state_signature(payload):
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def save_user_state(force=False):
+    if st.session_state.get("guest_mode"):
+        return True
+
+    client = restore_authenticated_client()
+    user_id = st.session_state.get("auth_user_id")
+
+    if client is None or not user_id:
+        return False
+
+    payload = user_state_payload()
+    signature = state_signature(payload)
+
+    if (
+        not force
+        and signature == st.session_state.get("last_saved_signature")
+    ):
+        return True
+
+    try:
+        client.table("user_app_state").upsert(
+            {
+                "user_id": user_id,
+                "state": payload,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+            on_conflict="user_id",
+        ).execute()
+
+        st.session_state["last_saved_signature"] = signature
+        st.session_state["last_saved_at"] = datetime.now().strftime("%H:%M:%S")
+        st.session_state["save_error"] = None
+        return True
+    except Exception as e:
+        st.session_state["save_error"] = str(e)
+        return False
+
+
+def load_user_state():
+    client = restore_authenticated_client()
+    user_id = st.session_state.get("auth_user_id")
+    if client is None or not user_id:
+        return False
+
+    try:
+        response = (
+            client.table("user_app_state")
+            .select("state")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data or []
+
+        if not rows:
+            save_user_state(force=True)
+            st.session_state["cloud_state_loaded"] = True
+            return True
+
+        state = rows[0].get("state") or {}
+
+        st.session_state["budget_iniziale"] = int(
+            state.get("budget_iniziale", 500)
+        )
+        st.session_state["num_partecipanti"] = int(
+            state.get("num_partecipanti", 10)
+        )
+        st.session_state["slot"] = {
+            **DEFAULT_SLOTS,
+            **{
+                k: int(v)
+                for k, v in (state.get("slot") or {}).items()
+                if k in DEFAULT_SLOTS
+            },
+        }
+        st.session_state["perc_reparto"] = {
+            **DEFAULT_PERC,
+            **{
+                k: float(v)
+                for k, v in (state.get("perc_reparto") or {}).items()
+                if k in DEFAULT_PERC
+            },
+        }
+        st.session_state["rosa"] = state.get("rosa") or []
+        st.session_state["speso"] = int(
+            state.get(
+                "speso",
+                sum(int(x.get("Prezzo", 0)) for x in st.session_state["rosa"]),
+            )
+        )
+
+        saved_list = state.get("custom_listone")
+        if saved_list:
+            custom = pd.DataFrame(saved_list)
+            if not custom.empty:
+                custom = normalize_listone(custom)
+                st.session_state["giocatori"] = custom
+                st.session_state["listone_source"] = (
+                    state.get("listone_source") or "File salvato"
+                )
+        else:
+            # I dati online sono sempre ricaricabili e non vengono duplicati nel DB.
+            st.session_state["giocatori"] = None
+            st.session_state["listone_source"] = "Nessuno"
+
+        st.session_state["last_saved_signature"] = state_signature(
+            user_state_payload()
+        )
+        st.session_state["cloud_state_loaded"] = True
+        st.session_state["save_error"] = None
+        return True
+
+    except Exception as e:
+        st.session_state["save_error"] = str(e)
+        return False
+
+
+def logout_user():
+    try:
+        client = restore_authenticated_client()
+        if client is not None:
+            client.auth.sign_out({"scope": "local"})
+    except Exception:
+        pass
+
+    for k in [
+        "auth_access_token", "auth_refresh_token", "auth_user_id",
+        "auth_email", "cloud_state_loaded", "last_saved_signature",
+        "guest_mode",
+    ]:
+        st.session_state.pop(k, None)
+    st.rerun()
+
+
+def render_setup_screen():
+    st.markdown(
+        """
+        <div class="auth-shell">
+            <div class="auth-brand">
+                <div class="brand-mark">FA</div>
+                <div>
+                    <div class="auth-brand-name">FantAsta Assistant</div>
+                    <div class="auth-brand-sub">Account e salvataggio cloud</div>
+                </div>
+            </div>
+            <div class="auth-card">
+                <div class="eyebrow">CONFIGURAZIONE INIZIALE</div>
+                <h1>Collega il database</h1>
+                <p>
+                    L'app è pronta per account personali e salvataggio automatico.
+                    Mancano solo le chiavi Supabase nei Secrets di Streamlit Cloud.
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.info(
+        "Puoi configurare Supabase seguendo il file SETUP_ACCOUNT.md "
+        "incluso nel pacchetto. Finché non lo fai puoi entrare in modalità prova."
+    )
+
+    c1, c2 = st.columns([1, 1])
+    if c1.button(
+        "Continua in modalità prova",
+        type="primary",
+        use_container_width=True,
+    ):
+        st.session_state["guest_mode"] = True
+        st.rerun()
+
+    c2.caption(
+        "La modalità prova non salva i dati dopo la chiusura della sessione."
+    )
+    st.stop()
+
+
+def render_auth_screen():
+    st.markdown(
+        """
+        <div class="auth-shell">
+            <div class="auth-brand">
+                <div class="brand-mark">FA</div>
+                <div>
+                    <div class="auth-brand-name">FantAsta Assistant</div>
+                    <div class="auth-brand-sub">La tua asta, salvata nel cloud.</div>
+                </div>
+            </div>
+            <div class="auth-card">
+                <div class="eyebrow">BENTORNATO</div>
+                <h1>Accedi alla tua asta</h1>
+                <p>Rosa, budget e impostazioni vengono sincronizzati sul tuo account.</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    login_tab, signup_tab = st.tabs(["Accedi", "Crea account"])
+
+    with login_tab:
+        with st.form("login_form"):
+            email = st.text_input(
+                "Email",
+                placeholder="nome@email.it",
+            )
+            password = st.text_input(
+                "Password",
+                type="password",
+                placeholder="••••••••",
+            )
+            submitted = st.form_submit_button(
+                "Accedi",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if submitted:
+            if not email or not password:
+                st.error("Inserisci email e password.")
+            else:
+                try:
+                    client = new_supabase_client()
+                    response = client.auth.sign_in_with_password(
+                        {"email": email.strip(), "password": password}
+                    )
+
+                    if not response.session or not response.user:
+                        st.error("Accesso non completato.")
+                    else:
+                        st.session_state["auth_access_token"] = (
+                            response.session.access_token
+                        )
+                        st.session_state["auth_refresh_token"] = (
+                            response.session.refresh_token
+                        )
+                        st.session_state["auth_user_id"] = str(response.user.id)
+                        st.session_state["auth_email"] = (
+                            response.user.email or email.strip()
+                        )
+                        st.session_state["cloud_state_loaded"] = False
+                        load_user_state()
+                        st.rerun()
+                except Exception as e:
+                    msg = str(e)
+                    if "Invalid login credentials" in msg:
+                        st.error("Email o password non corretti.")
+                    else:
+                        st.error(f"Accesso non riuscito: {msg}")
+
+    with signup_tab:
+        with st.form("signup_form"):
+            new_email = st.text_input(
+                "Email",
+                placeholder="nome@email.it",
+                key="signup_email",
+            )
+            new_password = st.text_input(
+                "Password",
+                type="password",
+                placeholder="Minimo 8 caratteri",
+                key="signup_password",
+            )
+            confirm_password = st.text_input(
+                "Conferma password",
+                type="password",
+                placeholder="Ripeti la password",
+                key="signup_password_confirm",
+            )
+            signup = st.form_submit_button(
+                "Crea account",
+                use_container_width=True,
+            )
+
+        if signup:
+            if not new_email or not new_password:
+                st.error("Compila email e password.")
+            elif len(new_password) < 8:
+                st.error("Usa una password di almeno 8 caratteri.")
+            elif new_password != confirm_password:
+                st.error("Le password non coincidono.")
+            else:
+                try:
+                    client = new_supabase_client()
+                    response = client.auth.sign_up(
+                        {
+                            "email": new_email.strip(),
+                            "password": new_password,
+                        }
+                    )
+
+                    if response.session and response.user:
+                        st.session_state["auth_access_token"] = (
+                            response.session.access_token
+                        )
+                        st.session_state["auth_refresh_token"] = (
+                            response.session.refresh_token
+                        )
+                        st.session_state["auth_user_id"] = str(response.user.id)
+                        st.session_state["auth_email"] = (
+                            response.user.email or new_email.strip()
+                        )
+                        st.session_state["cloud_state_loaded"] = False
+                        save_user_state(force=True)
+                        st.rerun()
+                    else:
+                        st.success(
+                            "Account creato. Controlla l'email di conferma, "
+                            "poi torna qui e accedi."
+                        )
+                except Exception as e:
+                    st.error(f"Registrazione non riuscita: {e}")
+
+    st.stop()
+
+
+# Stile aggiuntivo per login e nuova UI.
+st.markdown(
+    """
+    <style>
+    .auth-shell {
+        max-width: 720px;
+        margin: 7vh auto 18px auto;
+    }
+    .auth-brand {
+        display:flex;
+        align-items:center;
+        gap:12px;
+        margin-bottom:18px;
+    }
+    .brand-mark {
+        width:44px;
+        height:44px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        border-radius:13px;
+        background:#111827;
+        color:white;
+        font-weight:800;
+        letter-spacing:-.04em;
+    }
+    .auth-brand-name {
+        font-weight:800;
+        font-size:16px;
+        letter-spacing:-.02em;
+    }
+    .auth-brand-sub {
+        font-size:12px;
+        color:#6b7280;
+        margin-top:1px;
+    }
+    .auth-card {
+        background:white;
+        border:1px solid #e5e7eb;
+        border-radius:24px;
+        padding:30px 32px;
+        box-shadow:0 16px 45px rgba(17,24,39,.07);
+        margin-bottom:14px;
+    }
+    .auth-card h1 {
+        font-size:30px;
+        margin:5px 0 8px;
+        letter-spacing:-.045em;
+    }
+    .auth-card p {
+        color:#6b7280;
+        margin:0;
+        max-width:520px;
+        line-height:1.55;
+    }
+    .eyebrow {
+        color:#6b7280;
+        font-size:10px;
+        font-weight:800;
+        letter-spacing:.12em;
+    }
+    .user-chip {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        padding:10px 12px;
+        border:1px solid #e5e7eb;
+        border-radius:14px;
+        background:#f9fafb;
+        font-size:12px;
+    }
+    .save-ok {
+        color:#166534;
+        background:#ecfdf3;
+        border:1px solid #bbf7d0;
+        border-radius:999px;
+        padding:5px 8px;
+        font-size:11px;
+        font-weight:700;
+    }
+    .save-error {
+        color:#991b1b;
+        background:#fef2f2;
+        border:1px solid #fecaca;
+        border-radius:999px;
+        padding:5px 8px;
+        font-size:11px;
+        font-weight:700;
+    }
+    .roster-hero {
+        display:grid;
+        grid-template-columns: 1.4fr .8fr;
+        gap:14px;
+        margin:10px 0 16px;
+    }
+    .roster-panel {
+        background:white;
+        border:1px solid #e5e7eb;
+        border-radius:20px;
+        padding:20px;
+        box-shadow:0 6px 20px rgba(17,24,39,.035);
+    }
+    .roster-title {
+        font-size:20px;
+        font-weight:800;
+        letter-spacing:-.035em;
+        margin:2px 0 4px;
+    }
+    .roster-desc {
+        color:#6b7280;
+        font-size:13px;
+        line-height:1.5;
+    }
+    @media(max-width:800px) {
+        .roster-hero {grid-template-columns:1fr;}
+        .auth-card {padding:24px 22px;}
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# Gate account.
+if not supabase_configured():
+    if not st.session_state.get("guest_mode"):
+        render_setup_screen()
+else:
+    if not st.session_state.get("auth_user_id"):
+        # Prova a ricostruire una sessione già presente nello state corrente.
+        client = restore_authenticated_client()
+        if client is None:
+            render_auth_screen()
+
+    if (
+        st.session_state.get("auth_user_id")
+        and not st.session_state.get("cloud_state_loaded")
+    ):
+        load_user_state()
+
 
 
 # ------------------------------------------------------------
@@ -1363,6 +1927,7 @@ def add_player_to_roster(player_name, price, dataframe):
         "Prezzo": int(price),
     })
     st.session_state["speso"] += int(price)
+    save_user_state(force=True)
 
     return True, f"{player_name} aggiunto alla rosa per {int(price)} FM."
 
@@ -1496,18 +2061,29 @@ live_text = (
     or "sincronizzazione iniziale"
 )
 
+account_name = (
+    "Modalità prova"
+    if st.session_state.get("guest_mode")
+    else st.session_state.get("auth_email", "Account")
+)
+
 st.markdown(
     f"""
     <div class="app-hero">
       <div class="hero-row">
         <div>
-          <div class="micro-label" style="color:#94a3b8;">FANTACALCIO · ASTA</div>
-          <div class="hero-title">FantAsta Assistant</div>
-          <div class="hero-sub">Rosa, budget e decisioni d'acquisto in un'unica dashboard.</div>
+          <div class="micro-label" style="color:#94a3b8;">FANTACALCIO · ASTA LIVE</div>
+          <div class="hero-title">La tua asta, sotto controllo.</div>
+          <div class="hero-sub">
+            Budget, rosa, rendimento e consigli aggiornati in tempo reale.
+          </div>
         </div>
-        <div class="live-badge">
-          <span class="live-dot"></span>
-          Fantacalcio LIVE · {live_text}
+        <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+          <div class="live-badge">
+            <span class="live-dot"></span>
+            LIVE · {live_text}
+          </div>
+          <div style="font-size:11px; color:#94a3b8;">{account_name}</div>
         </div>
       </div>
     </div>
@@ -1517,7 +2093,31 @@ st.markdown(
 
 with st.sidebar:
     st.markdown("### FANTA ASTA")
-    st.caption("Assistant Pro · V6")
+    st.caption("Assistant Pro · V7")
+
+    if st.session_state.get("guest_mode"):
+        st.markdown(
+            '<div class="user-chip"><span>Modalità prova</span>'
+            '<span class="save-error">NON SALVA</span></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        user_email = st.session_state.get("auth_email", "Account")
+        saved_at = st.session_state.get("last_saved_at", "—")
+        save_error = st.session_state.get("save_error")
+        save_badge = (
+            '<span class="save-error">ERRORE SAVE</span>'
+            if save_error
+            else f'<span class="save-ok">SALVATO {saved_at}</span>'
+        )
+        st.markdown(
+            f'<div class="user-chip"><span>{user_email}</span>{save_badge}</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Esci dall'account", use_container_width=True):
+            logout_user()
+
+    st.divider()
 
     st.markdown("#### Sincronizzazione")
     st.session_state["live_sync"] = st.toggle(
@@ -1594,6 +2194,7 @@ with st.sidebar:
         st.session_state["slot"] = {
             k: int(v) for k, v in slot_new.items()
         }
+        save_user_state(force=True)
         st.rerun()
 
     st.divider()
@@ -1699,6 +2300,7 @@ with st.sidebar:
                     "%d/%m/%Y %H:%M"
                 )
 
+                save_user_state(force=True)
                 st.success(
                     f"✓ Letti correttamente {len(data)} giocatori."
                 )
@@ -1904,7 +2506,29 @@ tab_rosa, tab_asta, tab_consigli, tab_giocatori, tab_news = st.tabs([
 # ------------------------------------------------------------
 
 with tab_rosa:
-    st.subheader("➕ Registra un acquisto")
+    st.markdown(
+        f"""
+        <div class="roster-hero">
+          <div class="roster-panel">
+            <div class="micro-label">ROSA PERSONALE</div>
+            <div class="roster-title">{len(st.session_state["rosa"])} giocatori acquistati</div>
+            <div class="roster-desc">
+              Registra ogni acquisto: budget e priorità vengono ricalcolati e salvati automaticamente.
+            </div>
+          </div>
+          <div class="roster-panel">
+            <div class="micro-label">BUDGET DISPONIBILE</div>
+            <div class="roster-title">{budget_rimasto()} FM</div>
+            <div class="roster-desc">
+              su {st.session_state["budget_iniziale"]} FM iniziali
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.subheader("Registra un acquisto")
 
     if df_disponibili.empty:
         st.info(
@@ -2016,6 +2640,7 @@ with tab_rosa:
 
                 st.session_state["rosa"].remove(item)
                 st.session_state["speso"] -= item["Prezzo"]
+                save_user_state(force=True)
                 st.rerun()
 
     else:
@@ -2031,6 +2656,7 @@ with tab_rosa:
         ):
             st.session_state["rosa"] = []
             st.session_state["speso"] = 0
+            save_user_state(force=True)
             st.rerun()
 
 
@@ -2404,3 +3030,9 @@ st.caption(
     "Le fonti web possono modificare la struttura delle proprie pagine. "
     "Per questo il caricamento del listone ufficiale resta disponibile come fallback."
 )
+
+# Safety net: se qualcosa nello stato utente è cambiato senza passare
+# da un pulsante esplicito, viene comunque salvato al termine del rerun.
+if st.session_state.get("auth_user_id") and not st.session_state.get("guest_mode"):
+    save_user_state(force=False)
+
