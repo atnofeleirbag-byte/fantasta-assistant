@@ -12,7 +12,6 @@ import pandas as pd
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
-from supabase import create_client
 
 st.set_page_config(
     page_title="FantAsta Assistant",
@@ -293,50 +292,142 @@ def init_state():
 init_state()
 
 # ------------------------------------------------------------
-# ACCOUNT + SALVATAGGIO CLOUD
+# ACCOUNT + SALVATAGGIO CLOUD (Supabase REST/Auth API)
 # ------------------------------------------------------------
 
-def supabase_configured():
+def _secret_value(*names):
+    """
+    Legge una chiave dai Secrets Streamlit, rimuovendo spazi/newline accidentali.
+    Supporta sia SUPABASE_KEY sia SUPABASE_PUBLISHABLE_KEY.
+    """
     try:
-        return bool(
-            st.secrets.get("SUPABASE_URL")
-            and st.secrets.get("SUPABASE_KEY")
+        for name in names:
+            value = st.secrets.get(name)
+            if value:
+                return str(value).strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return ""
+
+
+def supabase_url():
+    return _secret_value("SUPABASE_URL").rstrip("/")
+
+
+def supabase_key():
+    return _secret_value(
+        "SUPABASE_PUBLISHABLE_KEY",
+        "SUPABASE_KEY",
+    )
+
+
+def supabase_configured():
+    return bool(supabase_url() and supabase_key())
+
+
+def supabase_headers(access_token=None, prefer=None):
+    headers = {
+        "apikey": supabase_key(),
+        "Content-Type": "application/json",
+    }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    if prefer:
+        headers["Prefer"] = prefer
+    return headers
+
+
+def auth_request(method, endpoint, payload=None, access_token=None):
+    url = f"{supabase_url()}/auth/v1/{endpoint.lstrip('/')}"
+    response = requests.request(
+        method,
+        url,
+        headers=supabase_headers(access_token=access_token),
+        json=payload,
+        timeout=20,
+    )
+    return response
+
+
+def validate_supabase_credentials():
+    """
+    Verifica che URL e publishable key appartengano allo stesso progetto.
+    /auth/v1/settings è un endpoint leggero che richiede apikey valida.
+    """
+    if not supabase_configured():
+        return False, "Secrets Supabase mancanti."
+
+    try:
+        r = requests.get(
+            f"{supabase_url()}/auth/v1/settings",
+            headers=supabase_headers(),
+            timeout=15,
         )
+        if r.ok:
+            return True, None
+
+        msg = None
+        try:
+            msg = (r.json() or {}).get("msg") or (r.json() or {}).get("message")
+        except Exception:
+            msg = r.text[:250]
+
+        return False, f"{r.status_code}: {msg or 'API key non valida'}"
+    except Exception as e:
+        return False, str(e)
+
+
+def set_auth_session(data):
+    access = data.get("access_token")
+    refresh = data.get("refresh_token")
+    user = data.get("user") or {}
+
+    if not access or not user.get("id"):
+        return False
+
+    st.session_state["auth_access_token"] = access
+    st.session_state["auth_refresh_token"] = refresh
+    st.session_state["auth_user_id"] = str(user["id"])
+    st.session_state["auth_email"] = user.get("email") or ""
+    return True
+
+
+def refresh_auth_session():
+    refresh = st.session_state.get("auth_refresh_token")
+    if not refresh or not supabase_configured():
+        return False
+
+    try:
+        r = auth_request(
+            "POST",
+            "token?grant_type=refresh_token",
+            {"refresh_token": refresh},
+        )
+        if not r.ok:
+            return False
+        return set_auth_session(r.json())
     except Exception:
         return False
 
 
-def new_supabase_client():
-    return create_client(
-        st.secrets["SUPABASE_URL"],
-        st.secrets["SUPABASE_KEY"],
-    )
-
-
-def restore_authenticated_client():
+def valid_access_token():
     access = st.session_state.get("auth_access_token")
-    refresh = st.session_state.get("auth_refresh_token")
-    if not access or not refresh or not supabase_configured():
-        return None
+    if not access:
+        return False
 
     try:
-        client = new_supabase_client()
-        response = client.auth.set_session(access, refresh)
+        r = auth_request("GET", "user", access_token=access)
+        if r.ok:
+            user = r.json() or {}
+            if user.get("id"):
+                st.session_state["auth_user_id"] = str(user["id"])
+                st.session_state["auth_email"] = user.get("email") or ""
+                return True
 
-        # Se il token è stato aggiornato, conserva la nuova coppia.
-        session = getattr(response, "session", None)
-        if session:
-            st.session_state["auth_access_token"] = session.access_token
-            st.session_state["auth_refresh_token"] = session.refresh_token
-
-        return client
+        # Token scaduto: prova refresh una volta.
+        return refresh_auth_session()
     except Exception:
-        for k in [
-            "auth_access_token", "auth_refresh_token",
-            "auth_user_id", "auth_email",
-        ]:
-            st.session_state.pop(k, None)
-        return None
+        return False
 
 
 def compact_listone_for_save():
@@ -394,14 +485,48 @@ def state_signature(payload):
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def db_request(method, query="", payload=None, prefer=None):
+    access = st.session_state.get("auth_access_token")
+    if not access:
+        if not refresh_auth_session():
+            raise RuntimeError("Sessione scaduta. Effettua nuovamente l'accesso.")
+        access = st.session_state.get("auth_access_token")
+
+    url = f"{supabase_url()}/rest/v1/user_app_state{query}"
+    response = requests.request(
+        method,
+        url,
+        headers=supabase_headers(
+            access_token=access,
+            prefer=prefer,
+        ),
+        json=payload,
+        timeout=20,
+    )
+
+    # Se il JWT è scaduto, refresh e ritenta una sola volta.
+    if response.status_code in (401, 403) and refresh_auth_session():
+        access = st.session_state.get("auth_access_token")
+        response = requests.request(
+            method,
+            url,
+            headers=supabase_headers(
+                access_token=access,
+                prefer=prefer,
+            ),
+            json=payload,
+            timeout=20,
+        )
+
+    return response
+
+
 def save_user_state(force=False):
     if st.session_state.get("guest_mode"):
         return True
 
-    client = restore_authenticated_client()
     user_id = st.session_state.get("auth_user_id")
-
-    if client is None or not user_id:
+    if not user_id or not valid_access_token():
         return False
 
     payload = user_state_payload()
@@ -414,43 +539,53 @@ def save_user_state(force=False):
         return True
 
     try:
-        client.table("user_app_state").upsert(
-            {
-                "user_id": user_id,
-                "state": payload,
-                "updated_at": datetime.utcnow().isoformat(),
-            },
-            on_conflict="user_id",
-        ).execute()
+        record = {
+            "user_id": user_id,
+            "state": payload,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        r = db_request(
+            "POST",
+            "?on_conflict=user_id",
+            payload=record,
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
+
+        if not r.ok:
+            raise RuntimeError(
+                f"{r.status_code}: {r.text[:300]}"
+            )
 
         st.session_state["last_saved_signature"] = signature
         st.session_state["last_saved_at"] = datetime.now().strftime("%H:%M:%S")
         st.session_state["save_error"] = None
         return True
+
     except Exception as e:
         st.session_state["save_error"] = str(e)
         return False
 
 
 def load_user_state():
-    client = restore_authenticated_client()
     user_id = st.session_state.get("auth_user_id")
-    if client is None or not user_id:
+    if not user_id or not valid_access_token():
         return False
 
     try:
-        response = (
-            client.table("user_app_state")
-            .select("state")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
+        r = db_request(
+            "GET",
+            f"?user_id=eq.{urllib.parse.quote(user_id)}&select=state&limit=1",
         )
-        rows = response.data or []
+        if not r.ok:
+            raise RuntimeError(
+                f"{r.status_code}: {r.text[:300]}"
+            )
+
+        rows = r.json() or []
 
         if not rows:
-            save_user_state(force=True)
             st.session_state["cloud_state_loaded"] = True
+            save_user_state(force=True)
             return True
 
         state = rows[0].get("state") or {}
@@ -481,7 +616,10 @@ def load_user_state():
         st.session_state["speso"] = int(
             state.get(
                 "speso",
-                sum(int(x.get("Prezzo", 0)) for x in st.session_state["rosa"]),
+                sum(
+                    int(x.get("Prezzo", 0))
+                    for x in st.session_state["rosa"]
+                ),
             )
         )
 
@@ -495,7 +633,6 @@ def load_user_state():
                     state.get("listone_source") or "File salvato"
                 )
         else:
-            # I dati online sono sempre ricaricabili e non vengono duplicati nel DB.
             st.session_state["giocatori"] = None
             st.session_state["listone_source"] = "Nessuno"
 
@@ -512,12 +649,16 @@ def load_user_state():
 
 
 def logout_user():
-    try:
-        client = restore_authenticated_client()
-        if client is not None:
-            client.auth.sign_out({"scope": "local"})
-    except Exception:
-        pass
+    access = st.session_state.get("auth_access_token")
+    if access:
+        try:
+            auth_request(
+                "POST",
+                "logout",
+                access_token=access,
+            )
+        except Exception:
+            pass
 
     for k in [
         "auth_access_token", "auth_refresh_token", "auth_user_id",
@@ -526,6 +667,20 @@ def logout_user():
     ]:
         st.session_state.pop(k, None)
     st.rerun()
+
+
+def readable_auth_error(response):
+    try:
+        data = response.json() or {}
+        return (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error_description")
+            or data.get("error")
+            or f"Errore {response.status_code}"
+        )
+    except Exception:
+        return response.text[:300] or f"Errore {response.status_code}"
 
 
 def render_setup_screen():
@@ -543,8 +698,8 @@ def render_setup_screen():
                 <div class="eyebrow">CONFIGURAZIONE INIZIALE</div>
                 <h1>Collega il database</h1>
                 <p>
-                    L'app è pronta per account personali e salvataggio automatico.
-                    Mancano solo le chiavi Supabase nei Secrets di Streamlit Cloud.
+                    Inserisci Project URL e Publishable key nei Secrets
+                    di Streamlit Cloud.
                 </p>
             </div>
         </div>
@@ -552,9 +707,10 @@ def render_setup_screen():
         unsafe_allow_html=True,
     )
 
-    st.info(
-        "Puoi configurare Supabase seguendo il file SETUP_ACCOUNT.md "
-        "incluso nel pacchetto. Finché non lo fai puoi entrare in modalità prova."
+    st.code(
+        'SUPABASE_URL = "https://tuo-progetto.supabase.co"\n'
+        'SUPABASE_PUBLISHABLE_KEY = "sb_publishable_..."',
+        language="toml",
     )
 
     c1, c2 = st.columns([1, 1])
@@ -573,6 +729,8 @@ def render_setup_screen():
 
 
 def render_auth_screen():
+    valid_key, key_error = validate_supabase_credentials()
+
     st.markdown(
         """
         <div class="auth-shell">
@@ -592,6 +750,17 @@ def render_auth_screen():
         """,
         unsafe_allow_html=True,
     )
+
+    if not valid_key:
+        st.error(
+            "Connessione Supabase non valida. "
+            f"Dettaglio: {key_error}"
+        )
+        st.caption(
+            "Controlla che SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY "
+            "provengano dallo stesso progetto."
+        )
+        st.stop()
 
     login_tab, signup_tab = st.tabs(["Accedi", "Crea account"])
 
@@ -617,33 +786,24 @@ def render_auth_screen():
                 st.error("Inserisci email e password.")
             else:
                 try:
-                    client = new_supabase_client()
-                    response = client.auth.sign_in_with_password(
-                        {"email": email.strip(), "password": password}
+                    r = auth_request(
+                        "POST",
+                        "token?grant_type=password",
+                        {
+                            "email": email.strip(),
+                            "password": password,
+                        },
                     )
-
-                    if not response.session or not response.user:
-                        st.error("Accesso non completato.")
-                    else:
-                        st.session_state["auth_access_token"] = (
-                            response.session.access_token
-                        )
-                        st.session_state["auth_refresh_token"] = (
-                            response.session.refresh_token
-                        )
-                        st.session_state["auth_user_id"] = str(response.user.id)
-                        st.session_state["auth_email"] = (
-                            response.user.email or email.strip()
-                        )
+                    if not r.ok:
+                        st.error(readable_auth_error(r))
+                    elif set_auth_session(r.json()):
                         st.session_state["cloud_state_loaded"] = False
                         load_user_state()
                         st.rerun()
-                except Exception as e:
-                    msg = str(e)
-                    if "Invalid login credentials" in msg:
-                        st.error("Email o password non corretti.")
                     else:
-                        st.error(f"Accesso non riuscito: {msg}")
+                        st.error("Accesso non completato.")
+                except Exception as e:
+                    st.error(f"Accesso non riuscito: {e}")
 
     with signup_tab:
         with st.form("signup_form"):
@@ -678,33 +838,28 @@ def render_auth_screen():
                 st.error("Le password non coincidono.")
             else:
                 try:
-                    client = new_supabase_client()
-                    response = client.auth.sign_up(
+                    r = auth_request(
+                        "POST",
+                        "signup",
                         {
                             "email": new_email.strip(),
                             "password": new_password,
-                        }
+                        },
                     )
 
-                    if response.session and response.user:
-                        st.session_state["auth_access_token"] = (
-                            response.session.access_token
-                        )
-                        st.session_state["auth_refresh_token"] = (
-                            response.session.refresh_token
-                        )
-                        st.session_state["auth_user_id"] = str(response.user.id)
-                        st.session_state["auth_email"] = (
-                            response.user.email or new_email.strip()
-                        )
-                        st.session_state["cloud_state_loaded"] = False
-                        save_user_state(force=True)
-                        st.rerun()
+                    if not r.ok:
+                        st.error(readable_auth_error(r))
                     else:
-                        st.success(
-                            "Account creato. Controlla l'email di conferma, "
-                            "poi torna qui e accedi."
-                        )
+                        data = r.json() or {}
+                        if data.get("access_token") and set_auth_session(data):
+                            st.session_state["cloud_state_loaded"] = False
+                            save_user_state(force=True)
+                            st.rerun()
+                        else:
+                            st.success(
+                                "Account creato. Controlla l'email di conferma, "
+                                "poi torna qui e accedi."
+                            )
                 except Exception as e:
                     st.error(f"Registrazione non riuscita: {e}")
 
@@ -841,9 +996,7 @@ if not supabase_configured():
         render_setup_screen()
 else:
     if not st.session_state.get("auth_user_id"):
-        # Prova a ricostruire una sessione già presente nello state corrente.
-        client = restore_authenticated_client()
-        if client is None:
+        if not valid_access_token():
             render_auth_screen()
 
     if (
@@ -2093,7 +2246,7 @@ st.markdown(
 
 with st.sidebar:
     st.markdown("### FANTA ASTA")
-    st.caption("Assistant Pro · V7")
+    st.caption("Assistant Pro · V7.1")
 
     if st.session_state.get("guest_mode"):
         st.markdown(
