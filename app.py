@@ -401,6 +401,125 @@ def fetch_gazzetta_listone():
     return out.drop_duplicates("_key").reset_index(drop=True)
 
 
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_fantacalcio_quotes():
+    """
+    Recupera dalla pagina Quotazioni Fantacalcio.it i valori Classic correnti:
+    QI, QA e FVM. La fonte viene usata per aggiornare il listone già dotato
+    di ruoli (Gazzetta o file ufficiale caricato dall'utente).
+    """
+    tables = read_html_tables(FANTACALCIO_QUOTES_URL)
+
+    best = None
+    best_score = -1
+
+    for raw in tables:
+        df = flatten_columns(raw)
+        text = " ".join(map(str, df.columns)).lower()
+        score = (
+            int("fvm" in text) * 2
+            + int("qa" in text) * 2
+            + int("qi" in text)
+            + int("calciatore" in text)
+        )
+        if len(df) >= 100 and score > best_score:
+            best = df
+            best_score = score
+
+    if best is None:
+        raise ValueError("tabella quotazioni Fantacalcio non trovata")
+
+    c_nome = pick_col(best, ["Calciatore", "Giocatore", "Nome"])
+    c_sq = pick_col(best, ["Sq", "Squadra"])
+
+    # In pagina ci sono colonne Classic e Mantra duplicate.
+    # Pandas di solito rende le seconde QA.1 / QI.1 ecc.; prendiamo la prima.
+    cols_norm = [(c, norm_header(c)) for c in best.columns]
+
+    def first_matching(prefix):
+        exact = [c for c, n in cols_norm if n == prefix]
+        if exact:
+            return exact[0]
+        begins = [c for c, n in cols_norm if n.startswith(prefix)]
+        return begins[0] if begins else None
+
+    c_qi = first_matching("qi")
+    c_qa = first_matching("qa")
+    c_fvm = next(
+        (c for c, n in cols_norm if n.startswith("fvm")),
+        None
+    )
+
+    if c_nome is None:
+        object_cols = [c for c in best.columns if best[c].dtype == object]
+        object_cols = [
+            c for c in object_cols
+            if c != c_sq
+        ]
+        if object_cols:
+            c_nome = max(
+                object_cols,
+                key=lambda c: best[c].astype(str).str.len().mean()
+            )
+
+    if c_nome is None or c_qa is None:
+        raise ValueError("colonne quotazioni Fantacalcio non riconosciute")
+
+    out = pd.DataFrame({
+        "Nome": best[c_nome].map(clean_name),
+        "Squadra_FC": (
+            best[c_sq].astype(str).str.strip()
+            if c_sq is not None else ""
+        ),
+        "QI_FC": (
+            to_num(best[c_qi])
+            if c_qi is not None else np.nan
+        ),
+        "QA_FC": to_num(best[c_qa]),
+        "FVM": (
+            to_num(best[c_fvm])
+            if c_fvm is not None else np.nan
+        ),
+    })
+
+    out = out[out["Nome"].notna() & (out["Nome"].str.len() > 1)].copy()
+    out["_key"] = out["Nome"].map(key_name)
+
+    return out.drop_duplicates("_key").reset_index(drop=True)
+
+
+def merge_live_quotes(dataframe, quotes):
+    """
+    Aggiorna Quotazione con QA Fantacalcio e aggiunge QI/FVM.
+    Mantiene ruolo e squadra del listone di base.
+    """
+    out = dataframe.copy()
+
+    # evita duplicati se la funzione viene richiamata più volte
+    for c in ["QI_FC", "QA_FC", "FVM", "Squadra_FC"]:
+        if c in out.columns:
+            out = out.drop(columns=[c])
+
+    if quotes is None or quotes.empty:
+        if "FVM" not in out.columns:
+            out["FVM"] = np.nan
+        return out
+
+    keep = ["_key", "QI_FC", "QA_FC", "FVM", "Squadra_FC"]
+    out = out.merge(quotes[keep], on="_key", how="left")
+
+    if "Quotazione" not in out.columns:
+        out["Quotazione"] = np.nan
+
+    # Fantacalcio QA è la quotazione prioritaria; se non c'è resta quella del listone.
+    out["Quotazione"] = out["QA_FC"].combine_first(
+        pd.to_numeric(out["Quotazione"], errors="coerce")
+    )
+
+    return out
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_fantacalcio_stats():
     tables = read_html_tables(FANTACALCIO_STATS_URL)
@@ -505,12 +624,19 @@ def load_online_data():
 
     listone = None
     stats = None
+    quotes = None
 
     try:
         listone = fetch_gazzetta_listone()
         status["Gazzetta listone"] = f"OK ({len(listone)})"
     except Exception as e:
         status["Gazzetta listone"] = f"KO: {e}"
+
+    try:
+        quotes = fetch_fantacalcio_quotes()
+        status["Fantacalcio quotazioni/FVM"] = f"OK ({len(quotes)})"
+    except Exception as e:
+        status["Fantacalcio quotazioni/FVM"] = f"KO: {e}"
 
     try:
         stats = fetch_fantacalcio_stats()
@@ -520,11 +646,14 @@ def load_online_data():
 
     if listone is None or listone.empty:
         raise RuntimeError(
-            "Non sono riuscito a costruire il listone online. "
-            "Puoi comunque caricare il listone ufficiale nella sidebar."
+            "Non sono riuscito a costruire automaticamente il listone con i ruoli. "
+            "Carica il listone ufficiale Classic: l'app lo aggiornerà poi "
+            "automaticamente con QA, FVM e statistiche Fantacalcio."
         )
 
+    listone = merge_live_quotes(listone, quotes)
     data = merge_listone_stats(listone, stats)
+
     return data, stats, status
 
 
@@ -795,6 +924,126 @@ def add_player_to_roster(player_name, price, dataframe):
     return True, f"{player_name} aggiunto alla rosa per {int(price)} FM."
 
 
+
+# ------------------------------------------------------------
+# CONSIGLI ACQUISTI: SLOT 1-8, JOLLY, SCOMMESSE
+# ------------------------------------------------------------
+
+def minmax_0_10(series):
+    s = pd.to_numeric(series, errors="coerce")
+    valid = s.dropna()
+    if valid.empty:
+        return pd.Series(5.0, index=series.index)
+    lo, hi = float(valid.min()), float(valid.max())
+    if hi <= lo:
+        return pd.Series(5.0, index=series.index)
+    return ((s.fillna(lo) - lo) / (hi - lo) * 10).clip(0, 10)
+
+
+def build_buying_advice(available_df):
+    """
+    Costruisce fasce di acquisto dinamiche per ruolo.
+    Slot 1 = prima fascia del ruolo, Slot 8 = fascia più economica/profonda.
+    Jolly e Scommesse sono segnali calcolati dall'app, non etichette editoriali
+    copiate dalle testate.
+    """
+    if available_df is None or available_df.empty:
+        return pd.DataFrame()
+
+    chunks = []
+
+    for role in "PDCA":
+        g = available_df[available_df["Ruolo"] == role].copy()
+        if g.empty:
+            continue
+
+        g["QA_num"] = pd.to_numeric(g["Quotazione"], errors="coerce")
+        if "FVM" not in g.columns:
+            g["FVM"] = np.nan
+        g["FVM_num"] = pd.to_numeric(g["FVM"], errors="coerce")
+
+        g["QAIndex"] = minmax_0_10(g["QA_num"])
+        g["FVMIndex"] = minmax_0_10(g["FVM_num"])
+
+        rendimento = pd.to_numeric(
+            g.get("RendimentoScore", pd.Series(5, index=g.index)),
+            errors="coerce",
+        ).fillna(5).clip(0, 10)
+
+        tit = (
+            pd.to_numeric(
+                g.get("TitolaritaProxy", pd.Series(50, index=g.index)),
+                errors="coerce",
+            ).fillna(50).clip(0, 100) / 10
+        )
+
+        need = squad_need_score(role)
+
+        # FVM e quotazione definiscono il valore di mercato;
+        # dati partita/titolarità possono spostare la gerarchia.
+        g["IndiceAcquisto"] = (
+            g["FVMIndex"] * 0.32
+            + g["QAIndex"] * 0.23
+            + rendimento * 0.28
+            + tit * 0.12
+            + need * 0.05
+        ).clip(0, 10)
+
+        g = g.sort_values(
+            ["IndiceAcquisto", "FVM_num", "QA_num"],
+            ascending=False,
+        ).reset_index(drop=True)
+
+        # 8 fasce per ruolo, basate sulla posizione relativa.
+        n = len(g)
+        g["Slot"] = [
+            min(8, int((i * 8) / max(n, 1)) + 1)
+            for i in range(n)
+        ]
+        g["Fascia"] = g["Slot"].map(lambda x: f"Slot {x}")
+
+        # Valore rispetto al prezzo: utile per trovare giocatori meno costosi
+        # che stanno rendendo sopra il prezzo/listone.
+        qa_denom = g["QAIndex"].replace(0, 0.5)
+        g["ValueGap"] = rendimento - g["QAIndex"]
+
+        # Jolly: fascia media ma rendimento/valore sopra la quotazione.
+        g["Jolly"] = (
+            g["Slot"].between(3, 6)
+            & (rendimento >= 6.0)
+            & (g["ValueGap"] >= 1.0)
+        )
+
+        # Scommessa: prezzo basso / slot profondo con segnali positivi.
+        pv = pd.to_numeric(
+            g.get("PV", pd.Series(0, index=g.index)),
+            errors="coerce",
+        ).fillna(0)
+
+        fm = pd.to_numeric(
+            g.get("FM", pd.Series(np.nan, index=g.index)),
+            errors="coerce",
+        )
+
+        g["Scommessa"] = (
+            (g["Slot"] >= 6)
+            & (g["QAIndex"] <= 4.5)
+            & (
+                (rendimento >= 5.2)
+                | (fm >= 6.5)
+                | ((pv <= 3) & (g["FVMIndex"] >= 4.5))
+            )
+        )
+
+        g["PrioritaRosa"] = need
+        chunks.append(g)
+
+    if not chunks:
+        return pd.DataFrame()
+
+    return pd.concat(chunks, ignore_index=True)
+
+
 # ------------------------------------------------------------
 # SIDEBAR
 # ------------------------------------------------------------
@@ -922,6 +1171,19 @@ with st.sidebar:
                             "Fantacalcio statistiche"
                         ] = f"KO: {e}"
 
+                # Aggiorna sempre quotazione attuale e FVM da Fantacalcio,
+                # mantenendo i ruoli del file ufficiale caricato.
+                try:
+                    live_quotes = fetch_fantacalcio_quotes()
+                    parsed = merge_live_quotes(parsed, live_quotes)
+                    st.session_state["source_status"][
+                        "Fantacalcio quotazioni/FVM"
+                    ] = f"OK ({len(live_quotes)})"
+                except Exception as e:
+                    st.session_state["source_status"][
+                        "Fantacalcio quotazioni/FVM"
+                    ] = f"KO: {e}"
+
                 data = merge_listone_stats(parsed, stats)
 
                 st.session_state["giocatori"] = data
@@ -952,7 +1214,7 @@ with st.sidebar:
         with st.expander("Controlla anteprima"):
             preview_cols = [
                 c for c in
-                ["Nome", "Ruolo", "Squadra", "Quotazione"]
+                ["Nome", "Ruolo", "Squadra", "Quotazione", "FVM"]
                 if c in current.columns
             ]
             st.dataframe(
@@ -983,7 +1245,7 @@ if st.session_state["giocatori"] is None:
     except Exception:
         st.session_state["giocatori"] = pd.DataFrame(
             columns=[
-                "Nome", "Ruolo", "Squadra", "Quotazione",
+                "Nome", "Ruolo", "Squadra", "Quotazione", "FVM",
                 *STAT_COLS,
             ]
         )
@@ -991,7 +1253,7 @@ if st.session_state["giocatori"] is None:
 
 df = st.session_state["giocatori"].copy()
 
-for c in ["Nome", "Ruolo", "Squadra", "Quotazione", *STAT_COLS]:
+for c in ["Nome", "Ruolo", "Squadra", "Quotazione", "FVM", *STAT_COLS]:
     if c not in df.columns:
         df[c] = np.nan
 
@@ -1051,9 +1313,10 @@ else:
 # TAB
 # ------------------------------------------------------------
 
-tab_rosa, tab_asta, tab_giocatori, tab_news = st.tabs([
+tab_rosa, tab_asta, tab_consigli, tab_giocatori, tab_news = st.tabs([
     "📋 LA MIA ROSA",
     "🎯 ASSISTENTE ASTA",
+    "⭐ CONSIGLI ACQUISTI",
     "📊 GIOCATORI",
     "📰 NEWS",
 ])
@@ -1322,6 +1585,108 @@ with tab_asta:
                     st.error(msg)
 
 
+
+# ------------------------------------------------------------
+# TAB CONSIGLI ACQUISTI
+# ------------------------------------------------------------
+
+with tab_consigli:
+    st.subheader("⭐ Consigli acquisti: Slot 1–8, Jolly e Scommesse")
+
+    st.caption(
+        "Le fasce sono calcolate usando quotazione attuale e FVM Fantacalcio, "
+        "rendimento, bonus/titolarità disponibili e la necessità della tua rosa. "
+        "Slot 1 è la prima fascia; Slot 8 è la fascia più profonda."
+    )
+
+    advice = build_buying_advice(df_disponibili)
+
+    if advice.empty:
+        st.info("Carica prima un listone con ruoli validi.")
+    else:
+        role_choice = st.radio(
+            "Ruolo",
+            ["P", "D", "C", "A"],
+            horizontal=True,
+            key="advice_role",
+        )
+
+        category_choice = st.selectbox(
+            "Visualizza",
+            [
+                "Tutti gli slot",
+                "Slot 1",
+                "Slot 2",
+                "Slot 3",
+                "Slot 4",
+                "Slot 5",
+                "Slot 6",
+                "Slot 7",
+                "Slot 8",
+                "Jolly",
+                "Scommesse",
+            ],
+            key="advice_category",
+        )
+
+        view = advice[advice["Ruolo"] == role_choice].copy()
+
+        if category_choice.startswith("Slot "):
+            num_slot = int(category_choice.split()[-1])
+            view = view[view["Slot"] == num_slot]
+        elif category_choice == "Jolly":
+            view = view[view["Jolly"]]
+        elif category_choice == "Scommesse":
+            view = view[view["Scommessa"]]
+
+        view = view.sort_values(
+            ["IndiceAcquisto", "FVM_num", "QA_num"],
+            ascending=False,
+        )
+
+        # Quanti slot ti mancano proprio in questo reparto
+        need_txt = (
+            f"Ti mancano {slot_liberi(role_choice)} giocatori "
+            f"su {st.session_state['slot'][role_choice]} in questo reparto. "
+            f"Priorità rosa: {squad_need_score(role_choice):.1f}/10."
+        )
+        st.info(need_txt)
+
+        if view.empty:
+            st.info("Nessun giocatore rientra in questa categoria al momento.")
+        else:
+            cols = [
+                "Nome", "Squadra", "Fascia", "Quotazione", "FVM",
+                "PV", "MV", "FM", "Gol", "Assist",
+                "IndiceAcquisto", "Jolly", "Scommessa",
+            ]
+            cols = [c for c in cols if c in view.columns]
+
+            st.dataframe(
+                view[cols].head(40),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            st.markdown("**I migliori profili della fascia selezionata**")
+            for _, r in view.head(8).iterrows():
+                prezzo = recommended_price(r, df_disponibili)
+                tags = []
+                if bool(r.get("Jolly", False)):
+                    tags.append("Jolly")
+                if bool(r.get("Scommessa", False)):
+                    tags.append("Scommessa")
+                tag_txt = f" · {' / '.join(tags)}" if tags else ""
+
+                st.write(
+                    f"**{r['Nome']}** ({r.get('Squadra','')}) — "
+                    f"{r['Fascia']}{tag_txt} · "
+                    f"QA {int(r['Quotazione']) if pd.notna(r['Quotazione']) else 'n.d.'} · "
+                    f"FVM {int(r['FVM']) if pd.notna(r.get('FVM')) else 'n.d.'} · "
+                    f"tetto per la tua rosa ≈ **{prezzo} FM**"
+                )
+
+
 # ------------------------------------------------------------
 # TAB GIOCATORI
 # ------------------------------------------------------------
@@ -1361,7 +1726,7 @@ with tab_giocatori:
         )
 
         show_cols = [
-            "Nome", "Ruolo", "Squadra", "Quotazione",
+            "Nome", "Ruolo", "Squadra", "Quotazione", "FVM",
             "PV", "MV", "FM", "Gol", "Assist",
             "RendimentoScore", "PrioritaRosa",
             "ScoreGuidato",
