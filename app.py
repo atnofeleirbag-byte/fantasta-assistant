@@ -10,10 +10,9 @@ import pandas as pd
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
-from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(
-    page_title="FantAsta Assistant Pro V5",
+    page_title="FantAsta Assistant Pro V5.1",
     page_icon="⚡",
     layout="wide",
 )
@@ -1283,7 +1282,7 @@ st.markdown(
 
 with st.sidebar:
     st.markdown("### FANTA ASTA")
-    st.caption("Assistant Pro · V5")
+    st.caption("Assistant Pro · V5.1")
 
     st.markdown("#### Sincronizzazione")
     st.session_state["live_sync"] = st.toggle(
@@ -1293,7 +1292,16 @@ with st.sidebar:
     )
 
     if st.session_state["live_sync"]:
-        st_autorefresh(interval=60_000, key="fantasta_live_refresh")
+        st.components.v1.html(
+            """
+            <script>
+            setTimeout(function() {
+                window.parent.location.reload();
+            }, 60000);
+            </script>
+            """,
+            height=0,
+        )
         st.caption("● LIVE · refresh ~60 sec")
     else:
         st.caption("○ Aggiornamento automatico disattivato")
